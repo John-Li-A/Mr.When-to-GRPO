@@ -1,0 +1,11 @@
+check,model_or_data,metric,value,unit,interpretation
+starting_student,MATH-500 Qwen3-1.7B-Base,avg@4,25.50,percent,nonzero student baseline
+teacher_gap,MATH-500 Qwen3-4B-GRPO,avg@4,84.30,percent,strong teacher reference
+matched_signal_panel,MATH-500 fixed 64 problems,trajectory_accuracy,30.86,percent,79 of 256 trajectories correct
+matched_signal_panel,MATH-500 fixed 64 problems,mixed_group_rate,73.44,percent,usable within-group RL contrast
+early_dapo,DAPO sampled batches,all_fail_groups,185/192,groups,RL contrast nearly absent
+early_dapo,DAPO sampled batches,mixed_group_rate,3.65,percent,unsuitable for a short paired study
+resource_gate,RTX PRO 6000 96GB B64 n4 cap7168,nvml_peak,47138,MiB,three sampled-token OPD updates completed
+formal_opd_pilot,MATH-12K,trainer_updates,10,updates,queue and checkpoint protocol passed
+formal_opd_pilot,MATH-12K,trajectories,2560,trajectories,640 prompts with four rollouts each
+

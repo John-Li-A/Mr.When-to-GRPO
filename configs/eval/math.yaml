@@ -1,0 +1,25 @@
+schema_version: 1
+paths:
+  external_eval:
+    - CHANGE_ME/data/MATH-500/test.parquet
+    - CHANGE_ME/data/AMC23/test.parquet
+    - CHANGE_ME/data/AIME24/test.parquet
+    - CHANGE_ME/data/AIME25/test.parquet
+evaluation:
+  recipe_source: JustRL scripts/val/eval/gen_vllm.py
+  protocol: matched-training-cap-rule-verifier
+  primary_n: 4
+  external_n: 16
+  temperature: 0.7
+  top_p: 0.95
+  top_k: -1
+  repetition_penalty: 1.0
+  max_response_length: 7168
+  seed: 20260801
+  gpu_memory_utilization: 0.75
+  enforce_eager: true
+  max_num_batched_tokens: 8192
+  primary_panel: MATH-500
+  primary_metric: avg_at_4
+  external_panels: [MATH-500, AMC23, AIME24, AIME25]
+

@@ -1,0 +1,55 @@
+diff --git a/verl/verl/trainer/ppo/ray_trainer.py b/verl/verl/trainer/ppo/ray_trainer.py
+index 276094c..788b934 100644
+--- a/verl/verl/trainer/ppo/ray_trainer.py
++++ b/verl/verl/trainer/ppo/ray_trainer.py
+@@ -61,6 +61,16 @@ from verl.utils.torch_functional import masked_mean
+ from verl.utils.tracking import ValidationGenerationsLogger
+ 
+ 
++def _json_default(value):
++    if isinstance(value, torch.Tensor):
++        return value.detach().cpu().tolist()
++    if isinstance(value, np.ndarray):
++        return value.tolist()
++    if isinstance(value, np.generic):
++        return value.item()
++    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
++
++
+ @dataclass
+ class ResourcePoolManager:
+     """
+@@ -457,7 +467,7 @@ class RayPPOTrainer:
+         lines = []
+         for i in range(n):
+             entry = {k: v[i] for k, v in base_data.items()}
+-            lines.append(json.dumps(entry, ensure_ascii=False))
++            lines.append(json.dumps(entry, ensure_ascii=False, default=_json_default))
+ 
+         with open(filename, "w") as f:
+             f.write("\n".join(lines) + "\n")
+@@ -477,10 +487,23 @@ class RayPPOTrainer:
+         with marked_timer("dump_rollout_generations", timing_raw, color="green"):
+             inputs = self.tokenizer.batch_decode(batch.batch["prompts"], skip_special_tokens=True)
+             outputs = self.tokenizer.batch_decode(batch.batch["responses"], skip_special_tokens=True)
+-            scores = batch.batch["token_level_scores"].sum(-1).cpu().tolist()
++            token_level_scores = batch.batch["token_level_scores"]
++            scores = token_level_scores.reshape(token_level_scores.shape[0], -1).sum(-1).cpu().tolist()
+             sample_gts = [item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in batch]
+ 
+             reward_extra_infos_to_dump = reward_extra_infos_dict.copy()
++            response_mask = batch.batch["response_mask"]
++            response_lengths = response_mask.sum(dim=-1).cpu().tolist()
++            reward_extra_infos_to_dump["response_length"] = response_lengths
++            if "true_reward_score" in batch.batch:
++                verifier_rewards = (
++                    batch.batch["true_reward_score"]
++                    .reshape(batch.batch["true_reward_score"].shape[0], -1)
++                    .sum(dim=-1)
++                    .cpu()
++                    .tolist()
++                )
++                reward_extra_infos_to_dump["verifier_reward"] = verifier_rewards
+             if "request_id" in batch.non_tensor_batch:
+                 reward_extra_infos_dict.setdefault(
+                     "request_id",

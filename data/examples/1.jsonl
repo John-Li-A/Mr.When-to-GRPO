@@ -1,0 +1,5 @@
+{"input":"Synthetic problem","gts":"2","output":"1 + 1 = 2. \\boxed{2}","score":1.0,"step":1,"verifier_reward":1.0,"response_length":12}
+{"input":"Synthetic problem","gts":"2","output":"I think the answer is 3.","score":0.0,"step":1,"verifier_reward":0.0,"response_length":9}
+{"input":"Synthetic problem","gts":"2","output":"The result is 1.","score":0.0,"step":1,"verifier_reward":0.0,"response_length":8}
+{"input":"Synthetic problem","gts":"2","output":"After checking, the answer is 4.","score":0.0,"step":1,"verifier_reward":0.0,"response_length":11}
+

@@ -1,0 +1,49 @@
+diff --git a/verl/verl/utils/torch_functional.py b/verl/verl/utils/torch_functional.py
+index 5ed3be0..0da30d2 100644
+--- a/verl/verl/utils/torch_functional.py
++++ b/verl/verl/utils/torch_functional.py
+@@ -133,6 +133,44 @@ def logprobs_from_logits_v2(logits: torch.FloatTensor, labels):
+     return logprobs_labels
+ 
+ 
++def topk_logprobs_from_logits_with_chunking(
++    logits: torch.Tensor,
++    topk_ids: torch.Tensor,
++    chunk_size: int = 4096,
++) -> torch.Tensor:
++    """Gather normalized top-k log-probs without materializing full log-softmax.
++
++    This is the token-axis chunking strategy merged upstream in verl PR #6593.
++    It uses log_softmax(x).gather(i) == x.gather(i) - logsumexp(x).
++    """
++    if logits.ndim < 2:
++        raise ValueError(f"logits must have a vocab dimension, got shape={tuple(logits.shape)}")
++    if topk_ids.shape[:-1] != logits.shape[:-1]:
++        raise ValueError(
++            f"topk_ids leading shape {tuple(topk_ids.shape[:-1])} does not match "
++            f"logits {tuple(logits.shape[:-1])}"
++        )
++    if chunk_size <= 0:
++        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
++
++    vocab_size = logits.shape[-1]
++    top_k = topk_ids.shape[-1]
++    flat_logits = logits.reshape(-1, vocab_size)
++    flat_topk = topk_ids.reshape(-1, top_k)
++    token_count = flat_logits.shape[0]
++    if token_count == 0:
++        return torch.empty((*logits.shape[:-1], top_k), dtype=logits.dtype, device=logits.device)
++
++    output = torch.empty((token_count, top_k), dtype=logits.dtype, device=logits.device)
++    for start in range(0, token_count, chunk_size):
++        end = min(start + chunk_size, token_count)
++        chunk_logits_fp32 = flat_logits[start:end].float()
++        log_z = torch.logsumexp(chunk_logits_fp32, dim=-1, keepdim=True)
++        selected_logits = torch.gather(chunk_logits_fp32, dim=-1, index=flat_topk[start:end])
++        output[start:end] = (selected_logits - log_z).to(logits.dtype)
++    return output.reshape(*logits.shape[:-1], top_k)
++
++
+ def clip_by_value(x, tensor_min, tensor_max):
+     """
+     Tensor extenstion to torch.clamp

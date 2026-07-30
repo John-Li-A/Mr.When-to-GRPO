@@ -1,0 +1,15 @@
+schema_version: 1
+provenance:
+  student:
+    repo: Qwen/Qwen3-1.7B-Base
+    revision: master
+    identity_rule: local_file_sha256
+  teacher:
+    repo: lllyx/Qwen3-4B-Base-GRPO
+    revision: 1f3b2966edfb75f2f98a00617588c1f748088422
+    base_model: Qwen/Qwen3-4B-Base
+    training: full-parameter GRPO on DAPO-Math-17k-Processed
+paths:
+  student_model: CHANGE_ME/models/Qwen3-1.7B-Base
+  teacher_model: CHANGE_ME/models/Qwen3-4B-Base-GRPO
+

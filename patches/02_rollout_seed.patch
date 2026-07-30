@@ -1,0 +1,12 @@
+diff --git a/verl/verl/workers/config/rollout.py b/verl/verl/workers/config/rollout.py
+index 8cda0a9..7ea1eb5 100644
+--- a/verl/verl/workers/config/rollout.py
++++ b/verl/verl/workers/config/rollout.py
+@@ -106,6 +106,7 @@ class RolloutConfig(BaseConfig):
+     repetition_penalty: float = 1.0
+     do_sample: bool = True
+     n: int = 1
++    seed: int = 0
+ 
+     # Early termination threshold for multi-turn rollout in sglang.
+     # Abort remaining requests when (1 - over_sample_rate) * total_requests are completed.

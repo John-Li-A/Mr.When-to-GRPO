@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "protocol_id": "paired_handoff_v1",
+  "student": {
+    "repo": "Qwen/Qwen3-1.7B-Base"
+  },
+  "teacher": {
+    "repo": "lllyx/Qwen3-4B-Base-GRPO",
+    "revision": "1f3b2966edfb75f2f98a00617588c1f748088422"
+  },
+  "training_data": {
+    "identity": "MATH-12K native-verl conversion",
+    "rows": 12000,
+    "unique_prompts": 11998,
+    "sha256": "53e815b8781e3b4513c7cf9eb4a003b4f4af27198f1d06458336785626b0229d"
+  },
+  "source": {
+    "repo": "https://github.com/thunlp/OPD.git",
+    "commit": "4532fd35ccfdde82adc918b265e4c964534e83d1"
+  },
+  "split_counts": {
+    "calibration": 256,
+    "signal_probe": 128,
+    "branch_eval": 128,
+    "final_test": 256,
+    "train_trunk": 11221
+  },
+  "rollout": {
+    "prompt_batch_size": 64,
+    "n": 4,
+    "max_prompt_length": 1024,
+    "max_response_length": 7168,
+    "enable_thinking": false
+  }
+}
+

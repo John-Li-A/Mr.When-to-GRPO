@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Local models, datasets, trajectories, and training state
+/models/
+/checkpoints/
+/runs/
+/rollouts/
+/evaluations/
+/artifacts/
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.parquet
+*.jsonl
+*.log
+*.csv.tmp
+
+# Composed local configuration may contain machine paths
+configs/experiment.yaml
+
+!data/examples/*.jsonl

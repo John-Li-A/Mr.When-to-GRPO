@@ -1,0 +1,21 @@
+schema_version: 1
+runtime_provisional:
+  n_gpus_per_node: 1
+  model_dtype: bfloat16
+  attention_implementation: sdpa
+  use_fused_kernels: true
+  fused_kernel_backend: torch
+  teacher_compute_entropy: false
+  use_remove_padding: false
+  enable_activation_offload: true
+  enable_gradient_checkpointing: true
+  actor_param_offload: false
+  optimizer_offload: false
+  teacher_param_offload: true
+  rollout_enforce_eager: true
+  rollout_gpu_memory_utilization: 0.12
+  rollout_max_num_batched_tokens: 32768
+  rollout_cpu_offload_gb: 0
+  actor_micro_batch_size_per_gpu: 1
+  teacher_micro_batch_size_per_gpu: 1
+

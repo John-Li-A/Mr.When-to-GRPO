@@ -1,0 +1,183 @@
+diff --git a/verl/verl/workers/actor/dp_actor.py b/verl/verl/workers/actor/dp_actor.py
+index 914a761..c4c182a 100644
+--- a/verl/verl/workers/actor/dp_actor.py
++++ b/verl/verl/workers/actor/dp_actor.py
+@@ -67,6 +67,13 @@ class DataParallelPPOActor(BasePPOActor):
+         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
+         if torch.distributed.get_rank() == 0:
+             print(f"{role} use_fused_kernels={self.use_fused_kernels}")
++        self.topk_logprobs_with_chunking = self.config.get("topk_logprobs_with_chunking", False)
++        self.topk_logprobs_chunk_size = self.config.get("topk_logprobs_chunk_size", 4096)
++        if torch.distributed.get_rank() == 0:
++            print(
++                f"{role} topk_logprobs_with_chunking={self.topk_logprobs_with_chunking} "
++                f"chunk_size={self.topk_logprobs_chunk_size}"
++            )
+ 
+         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
+         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+@@ -196,19 +203,38 @@ class DataParallelPPOActor(BasePPOActor):
+                     if calculate_entropy:
+                         inplace_backward = False
+                     
+-                    # Optimization: when top_k > 0, compute log_softmax once and gather both
+-                    # log_probs and topk_log_probs to avoid duplicate computation and gradient
+-                    # issues from inplace operations
+                     need_topk = top_k > 0
+                     if need_topk:
+-                        # Compute log_softmax once for both target and topk tokens
+-                        # Note: we don't use inplace_backward here to ensure correct gradients
+-                        # when both log_probs and topk_log_probs are needed
+-                        log_probs_all = torch.log_softmax(logits_rmpad, dim=-1)
+-                        # Gather log_probs for target tokens
+-                        log_probs = log_probs_all.gather(
+-                            dim=-1, index=input_ids_rmpad_rolled.unsqueeze(-1)
+-                        ).squeeze(-1)
++                        if student_top_k_ids is not None:
++                            topk_ids = student_top_k_ids
++                            if student_top_k_ids.ndim == 3:
++                                if student_top_k_ids.shape[1] != seqlen:
++                                    full_student_top_k_ids = torch.zeros(
++                                        (batch_size, seqlen, top_k),
++                                        dtype=student_top_k_ids.dtype,
++                                        device=student_top_k_ids.device,
++                                    )
++                                    full_student_top_k_ids[:, -response_length - 1 : -1, :] = student_top_k_ids
++                                    student_top_k_ids = full_student_top_k_ids
++                                topk_ids = student_top_k_ids.view(-1, top_k)[indices]
++                        else:
++                            _, topk_ids = torch.topk(logits_rmpad, k=top_k, dim=-1)
++
++                        if self.topk_logprobs_with_chunking:
++                            gather_ids = torch.cat((input_ids_rmpad_rolled.unsqueeze(-1), topk_ids), dim=-1)
++                            gathered_log_probs = verl_F.topk_logprobs_from_logits_with_chunking(
++                                logits_rmpad,
++                                gather_ids,
++                                chunk_size=self.topk_logprobs_chunk_size,
++                            )
++                            log_probs = gathered_log_probs[..., 0]
++                            topk_log_probs = gathered_log_probs[..., 1:]
++                        else:
++                            log_probs_all = torch.log_softmax(logits_rmpad, dim=-1)
++                            log_probs = log_probs_all.gather(
++                                dim=-1, index=input_ids_rmpad_rolled.unsqueeze(-1)
++                            ).squeeze(-1)
++                            topk_log_probs = log_probs_all.gather(dim=-1, index=topk_ids)
+                     else:
+                         log_probs = logprobs_from_logits(
+                             logits=logits_rmpad,
+@@ -225,51 +251,6 @@ class DataParallelPPOActor(BasePPOActor):
+                                 self.compute_entropy_from_logits, logits_rmpad
+                             )
+                     
+-                    if need_topk:
+-                        if student_top_k_ids is not None:
+-                             # Use specific IDs (from rollout)
+-                             topk_ids = student_top_k_ids
+-                             if student_top_k_ids.ndim == 3: # (bsz, seqlen, k)
+-                                 # We are in rmpad mode, but student_top_k_ids is padded 3D tensor
+-                                 # We need to extract the relevant tokens aligning with input_ids_rmpad_rolled
+-                                 
+-                                 # This is tricky because student_top_k_ids is shaped (batch, seq, k)
+-                                 # and logits_rmpad is (total_nnz, vocab)
+-                                 # We need to flatten student_top_k_ids to (total_nnz, k) using indices
+-                                 
+-                                 # Re-use the indices computed from unpad_input
+-                                 # indices: (total_nnz,) 
+-                                 # student_top_k_ids: (batch, seq, k)
+-                                 
+-                                 # 1. If student_top_k_ids only covers the response, pad it to match full sequence length
+-                                 if student_top_k_ids.shape[1] != seqlen:
+-                                     full_student_top_k_ids = torch.zeros((batch_size, seqlen, top_k), 
+-                                                                         dtype=student_top_k_ids.dtype, 
+-                                                                         device=student_top_k_ids.device)
+-                                     full_student_top_k_ids[:, -response_length-1:-1, :] = student_top_k_ids
+-                                     student_top_k_ids = full_student_top_k_ids
+-
+-                                 # 2. Flatten student_top_k_ids to (batch*seq, k)
+-                                 flat_ids = student_top_k_ids.view(-1, top_k)
+-                                 
+-                                 # 3. Select using indices
+-                                 # Note: indices are from attention_mask, which aligns with how logits_rmpad represents data
+-                                 topk_ids_rmpad = flat_ids[indices] # (total_nnz, k)
+-                                 
+-                                 # If 'student_top_k_ids' in batch has shape (batch, seq_len, k), then:
+-                                 topk_ids = topk_ids_rmpad
+-                                 
+-                             else:
+-                                 # If it's already flattened? Unlikely.
+-                                 pass
+-
+-                        else:
+-                             # Legacy/Resample behavior
+-                             _, topk_ids = torch.topk(logits_rmpad, k=top_k, dim=-1)
+-
+-                        # Use pre-computed log_probs_all (always available when need_topk=True)
+-                        topk_log_probs = log_probs_all.gather(dim=-1, index=topk_ids)
+-
+                 # gather log_prob if sp > 1
+                 if self.use_ulysses_sp:
+                     # gather and unpad for the ulysses sp
+@@ -363,34 +344,42 @@ class DataParallelPPOActor(BasePPOActor):
+                     logits.div_(temperature)
+                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                     
+-                    # Optimization: when top_k > 0, compute log_softmax once and gather both
+-                    # log_probs and topk_log_probs to avoid duplicate computation
+                     need_topk = top_k > 0
+                     if need_topk:
+-                        # Compute log_softmax once for both target and topk tokens
+-                        log_probs_all = torch.log_softmax(logits, dim=-1)
+-                        # Gather log_probs for target tokens (responses)
+-                        log_probs = log_probs_all.gather(
+-                            dim=-1, index=micro_batch["responses"].unsqueeze(-1)
+-                        ).squeeze(-1)
++                        if student_top_k_ids is not None:
++                            topk_ids = student_top_k_ids
++                        else:
++                            _, topk_ids = torch.topk(logits, k=top_k, dim=-1)
++
++                        if self.topk_logprobs_with_chunking:
++                            gather_ids = torch.cat((micro_batch["responses"].unsqueeze(-1), topk_ids), dim=-1)
++                            gathered_log_probs = verl_F.topk_logprobs_from_logits_with_chunking(
++                                logits,
++                                gather_ids,
++                                chunk_size=self.topk_logprobs_chunk_size,
++                            )
++                            log_probs = gathered_log_probs[..., 0]
++                            topk_log_probs = gathered_log_probs[..., 1:]
++                        else:
++                            log_probs_all = torch.log_softmax(logits, dim=-1)
++                            log_probs = log_probs_all.gather(
++                                dim=-1, index=micro_batch["responses"].unsqueeze(-1)
++                            ).squeeze(-1)
++                            topk_log_probs = log_probs_all.gather(dim=-1, index=topk_ids)
+                     else:
+                         log_probs = logprobs_from_logits(logits, micro_batch["responses"])
+                     
+                     if calculate_entropy:
++                        entropy_logits = logits
++                        if self.config.entropy_from_logits_with_chunking:
++                            entropy_logits = logits.reshape(-1, logits.shape[-1])
+                         if not self.config.entropy_checkpointing:
+-                            entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+-                        else:
+-                            entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+-                    
+-                    if need_topk:
+-                        if student_top_k_ids is not None:
+-                             topk_ids = student_top_k_ids
+-                             # Ensure shape alignment if needed, but for non-rmpad (bsz, seq, k) should match logits (bsz, seq, vocab) dim 0,1
++                            entropy = self.compute_entropy_from_logits(entropy_logits)
+                         else:
+-                             _, topk_ids = torch.topk(logits, k=top_k, dim=-1)
+-                        
+-                        # Use pre-computed log_probs_all (always available when need_topk=True)
+-                        topk_log_probs = log_probs_all.gather(dim=-1, index=topk_ids)
++                            entropy = torch.utils.checkpoint.checkpoint(
++                                self.compute_entropy_from_logits, entropy_logits
++                            )
++                        entropy = entropy.reshape(logits.shape[:-1])
+ 
+             return entropy, log_probs, topk_ids, topk_log_probs
+ 

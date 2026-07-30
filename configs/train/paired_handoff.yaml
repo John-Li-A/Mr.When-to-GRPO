@@ -1,0 +1,107 @@
+schema_version: 1
+project:
+  name: opd_rl_local_gain_math
+  protocol_id: paired_handoff_v1
+  seed: 20260729
+  output_dir: artifacts/handoff_math
+
+provenance:
+  training_data:
+    recipe_source: https://github.com/sail-sg/understand-r1-zero
+    recipe_commit: dfca49dd460ee7cc8e4a5a162c876a7fd6993b87
+    identity: MATH-12K converted to native verl parquet
+    rows: 12000
+    unique_prompts: 11998
+    duplicate_prompt_groups: 2
+    exact_duplicate_rows_removed: 2
+    conflicting_prompt_groups: 0
+    sha256: 53e815b8781e3b4513c7cf9eb4a003b4f4af27198f1d06458336785626b0229d
+    level_counts: {1: 958, 2: 2152, 3: 2619, 4: 2776, 5: 3495}
+  source:
+    repo: https://github.com/thunlp/OPD.git
+    commit: 4532fd35ccfdde82adc918b265e4c964534e83d1
+    upstream_normalized_sha256:
+      on_policy_distillation.sh: 8377cb1b7bec6ebf380f8274623ce0188591ce90c95216ccd85b6d7aa36974a1
+      grpo.sh: a79466f8c426916439514a3747dbcbd28677727e01e13db3d7105f17b594dd10
+      verl/verl/trainer/ppo/core_algos.py: d7a2796319d9de5e0672138ae131e458b82ae0e54e9e121e44d415ece9a24bc3
+      verl/verl/trainer/ppo/ray_trainer.py: aa5440c1c7b486816976a933af7d326be0a755d3e9a667f94e4a52115f9cd746
+      verl/verl/workers/config/rollout.py: fb2ee018f778e45f529f360743863f5539d732db6805533ee60b41ed4986e5a0
+      verl/verl/workers/actor/dp_actor.py: ae706f1d20d3677bcd952fad8fb054180159747b4f2e61cab002f1328fd18d6f
+      verl/verl/utils/torch_functional.py: dfa7934cfaa23dcc30f672435819da936083862ebf6e8ba5546463e27d768106
+      verl/verl/workers/fsdp_workers.py: 3b9d038741571d9ed14fd752a6619855df491b6ea7f93dc4e0c4294f353bf10d
+      verl/verl/utils/reward_score/ttrl_math/__init__.py: 6e7f8ea703258c051e4c28379443416a485046c235196f4ee25a244c216e994c
+    permitted_local_patches:
+      verl/verl/trainer/ppo/ray_trainer.py:
+        normalized_sha256: b6cdd903c95449bd1b4523104717f0ac36655a86fc08ef1b321a56ed84f61f1b
+        disposition: json-safe rollout extras and exact observability fields
+      verl/verl/workers/config/rollout.py:
+        normalized_sha256: abc2419bf5cff215de420dddb57c5944240eab368be70d17c409e3993757262b
+        disposition: explicit rollout seed field
+      verl/verl/workers/actor/dp_actor.py:
+        normalized_sha256: df113592327b8ce31119db5b58976b1cbebebf91e7e259ee6633fe763431f7d5
+        disposition: memory-safe selected-token path and dormant chunked top-k helper
+      verl/verl/utils/torch_functional.py:
+        normalized_sha256: 0328c579ce52e499948d0deccb289963e3a4cb2d48cec5977fc9a0fc31ecdc39
+        disposition: chunked selected-token normalization helper
+      verl/verl/workers/fsdp_workers.py:
+        normalized_sha256: baaf2ce825935239ab349f4f35292f183a0d186e149bae261c183fadccc61e60
+        disposition: fused teacher alignment, entropy opt-out, and safe reshape
+
+paths:
+  source_root: CHANGE_ME/OPD
+  verl_root: CHANGE_ME/OPD/verl
+  train_data: CHANGE_ME/data/MATH/train.parquet
+
+data:
+  expected_train_rows: 12000
+  expected_train_sha256: 53e815b8781e3b4513c7cf9eb4a003b4f4af27198f1d06458336785626b0229d
+  required_columns: [prompt, level, id, data_source, ability, reward_model, extra_info]
+  fail_on_external_eval_overlap: true
+  required_prompt_substrings: ["Please reason step by step", "\\boxed{}"]
+  forbidden_prompt_substrings: ["<|im_start|>", "<|im_end|>"]
+  prompt_batch_size: 64
+  dataloader_num_workers: 0
+  splits:
+    calibration: 256
+    signal_probe: 128
+    branch_eval: 128
+    final_test: 256
+  queue_seeds: {discovery: 20260729, validation: 20260730}
+
+rollout:
+  n: 4
+  seeds: {discovery: 20260731, validation: 20260732}
+  max_prompt_length: 1024
+  max_response_length: 7168
+  eval_max_response_length: 7168
+  temperature: 1.0
+  top_p: 1.0
+  repetition_penalty: 1.0
+  enable_thinking: false
+
+training:
+  opd_estimator: token_reward_direct
+  rl_estimator: grpo
+  rl_objective: drgrpo
+  forbidden_estimators: [token_reward_direct_plus_grpo]
+  top_k: 0
+  top_k_strategy: only_stu
+  reward_weight_mode: student_p
+  opd_loss_agg_mode: token-mean
+  opd_use_dynamic_bsz: true
+  rl_norm_adv_by_std_in_grpo: false
+  rl_loss_agg_mode: seq-mean-token-sum-norm
+  rl_use_dynamic_bsz: false
+  ppo_mini_batch_size: 64
+  ppo_epochs: 1
+  checkpoint_frequency: 10
+  staged_trunk_initial_stop: 10
+  counterfactual_mode: fork_resumed_opd
+  reuse_fresh_trunk_t0: true
+  trunk_updates: 50
+  checkpoint_updates: [0, 10, 20, 30, 40, 50]
+  branch_points: [0, 20, 40]
+  branch_horizon: 10
+  validation_updates: null
+  monitor_hold_windows: 2
+

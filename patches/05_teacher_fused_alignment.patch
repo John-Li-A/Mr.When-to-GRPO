@@ -1,0 +1,66 @@
+diff --git a/verl/verl/workers/fsdp_workers.py b/verl/verl/workers/fsdp_workers.py
+index eae8b2f..682bcb3 100644
+--- a/verl/verl/workers/fsdp_workers.py
++++ b/verl/verl/workers/fsdp_workers.py
+@@ -1757,14 +1757,20 @@ class RewardModelWorker(Worker, DistProfilerExtension):
+                 pretrained_model_name_or_path=local_path,
+                 config=model_config,
+                 torch_dtype=model_dtype,
+-                attn_implementation="flash_attention_2",
++                attn_implementation=config.model.get("attn_implementation", "eager"),
+                 trust_remote_code=trust_remote_code,
+             )
+ 
++            fused_kernel_options = config.model.get("fused_kernel_options", None)
++            fused_kernels_backend = (
++                fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
++            )
+             apply_monkey_patch(
+                 model=reward_module,
+                 use_remove_padding=config.model.get("use_remove_padding", False),
+                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
++                use_fused_kernels=self.use_fused_kernels,
++                fused_kernels_backend=fused_kernels_backend,
+             )
+ 
+             reward_module.to(model_dtype)
+@@ -1810,7 +1816,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
+         vocab_size = original_shape[-1]
+         
+         # Flatten to [-1, vocab_size]
+-        logits_flat = logits.view(-1, vocab_size)
++        logits_flat = logits.reshape(-1, vocab_size)
+         
+         entropy_list = []
+         for i in range(0, logits_flat.size(0), chunk_size):
+@@ -2235,13 +2241,10 @@ class RewardModelWorker(Worker, DistProfilerExtension):
+                 )
+ 
+                 if self.use_fused_kernels and not need_logits:
+-                    rm_log_probs = output.log_probs[:, :-1]  # (bsz, seq_length)
++                    # output.log_probs[:, i] scores input_ids[:, i + 1]. Match the
++                    # response-only shape returned by the ordinary logits path.
++                    rm_log_probs = output.log_probs[:, -response_length - 1 : -1]
+                     rm_log_probs = rm_log_probs.to(torch.float32)
+-
+-                    # pad rm_log_probs to full sequence length
+-                    full_rm_log_probs = torch.zeros_like(input_ids, dtype=rm_log_probs.dtype)
+-                    full_rm_log_probs[:, :-1] = rm_log_probs
+-                    rm_log_probs = full_rm_log_probs
+                 else:
+                     # When return_dict=False, output is a tuple with logits as first element
+                     rm_output_logits = output[0] if isinstance(output, tuple) else output.logits
+@@ -2572,8 +2575,11 @@ class RewardModelWorker(Worker, DistProfilerExtension):
+         # Get global_steps from meta_info
+         global_steps = data.meta_info.get("global_steps", -1)
+         is_plot = data.meta_info.get("is_plot", False)
+-        # Compute teacher entropy every step for logging, but only plot every 10 steps
+-        compute_entropy = True
++        # Full-vocabulary teacher entropy is a diagnostic, not part of sampled-token OPD training.
++        # Keep it opt-in so the training path can use fused sampled-token log probabilities.
++        compute_entropy = bool(
++            data.meta_info.get("compute_teacher_entropy", self.config.get("compute_entropy", False))
++        )
+ 
+         # Get response mask to identify valid (non-padded) response tokens
+ 
