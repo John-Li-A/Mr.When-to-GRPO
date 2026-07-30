@@ -9,24 +9,40 @@ pip install -e ".[data,test]"
 pytest
 ```
 
+That environment is sufficient for the CPU demo. For the GPU reference path,
+use Python 3.12 and install the exercised stack:
+
+```bash
+pip install -r requirements/reference-runtime.txt
+```
+
 ## 2. Acquire external assets
 
-Download the student, teacher, MATH-12K training parquet, and evaluation panels
-listed in `data/README.md`. Do not rename a different conversion to the expected
-MATH-12K file: `prepare_protocol.py` verifies row count, prompt identity,
-columns, level distribution, and SHA-256.
-
-Clone the training source at the pinned commit and apply the five public
-patches:
+Clone the training source at the pinned commit, install its verl package, and
+apply the five public patches:
 
 ```bash
 git clone https://github.com/thunlp/OPD.git external/OPD
 git -C external/OPD checkout 4532fd35ccfdde82adc918b265e4c964534e83d1
+pip install -e external/OPD/verl --no-deps
 
 for patch in patches/*.patch; do
   git -C external/OPD apply "$(realpath "$patch")"
 done
 ```
+
+Materialize MATH-12K directly from that checkout:
+
+```bash
+python scripts/materialize_math12k.py \
+  --opd-root external/OPD \
+  --output data/MATH/train.parquet
+```
+
+The command checks the pinned Git commit, raw JSON and parquet hashes, and all
+12,000 JSON→native-verl row mappings. Download the student, teacher, and
+evaluation panels listed in `data/README.md`. `prepare_protocol.py` separately
+checks row count, prompt identity, columns, level distribution, and SHA-256.
 
 The intentionally excluded historical edit to
 `compute_token_reward_direct_plus_grpo_advantage` is not part of the protocol.
@@ -53,7 +69,7 @@ when2grpo-doctor --config configs/experiment.yaml --check-paths
 
 ```bash
 python scripts/prepare_protocol.py --config configs/experiment.yaml
-when2grpo-plan --config configs/experiment.yaml --dry-run
+when2grpo-plan --config configs/experiment.yaml
 python scripts/stage_protocol.py --config configs/experiment.yaml
 ```
 
@@ -71,8 +87,11 @@ when2grpo-launch \
   --dry-run
 ```
 
-The command is recorded as structured JSON. Actual execution requires explicit
-authorization:
+Before emitting the command, the launcher hashes the complete pre-intervention
+state. Paired arms at the same branch point must match on actor, optimizer,
+scheduler/RNG, dataloader, future prompt window, source, config, and rollout
+seed. The command and identity are recorded as structured JSON. Actual
+execution requires explicit authorization:
 
 ```bash
 HANDOFF_GPU_AUTHORIZED=1 when2grpo-launch \
@@ -96,6 +115,7 @@ when2grpo-audit \
 python scripts/evaluate.py \
   --config configs/experiment.yaml \
   --model-path merged/MODEL_ID \
+  --model-id MODEL_ID \
   --dataset CHANGE_ME/data/MATH-500/test.parquet \
   --panel MATH-500 \
   --n 4 \
@@ -108,8 +128,8 @@ accuracy. Preserve the generated manifests and hashes with every result.
 
 ## 7. Assemble the handoff surface
 
-Plan endpoint evaluations and run the generated commands for every registered
-pair:
+Plan endpoint evaluations and run the generated `argv` for every registered
+pair. Each generated evaluation command already includes `--execute`:
 
 ```bash
 python scripts/plan_evaluation.py --config configs/experiment.yaml
@@ -127,5 +147,6 @@ when2grpo-surface \
 ```
 
 Omit `--signals` when only the paired endpoint surface is required. The command
-refuses to join summaries whose panel, dataset hash, row count, sample count,
-response cap, or seed differ.
+checks the planned model ID and model-directory hash for each endpoint, then
+refuses to join summaries whose dataset, row count, sampling recipe, response
+cap, thinking mode, verifier source, or evaluation protocol differ.

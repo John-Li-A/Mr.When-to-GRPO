@@ -3,6 +3,7 @@
   "synthetic": true,
   "primary_panel": "DEMO",
   "primary_metric": "avg_at_n",
+  "equivalence_band": 0.01,
   "branch_horizon": 10,
   "evaluation_specs": [
     {"model_id": "opd_t10", "panel": "DEMO", "output_dir": "data/examples/endpoints/opd_t10"},

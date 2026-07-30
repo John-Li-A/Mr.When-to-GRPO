@@ -4,15 +4,97 @@ import argparse
 import json
 import os
 import shlex
+from dataclasses import asdict
 from pathlib import Path
 
 import yaml
 
-from .core import guard_estimator
+from .core import (
+    EMPTY_SHA256,
+    CheckpointIdentity,
+    canonical_json,
+    checkpoint_identity,
+    compare_branch_identities,
+    guard_estimator,
+    sha256_bytes,
+    tree_identity,
+)
 
 
 def boolean(value: bool) -> str:
     return "True" if value else "False"
+
+
+def _write_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def record_pre_intervention_identity(config: dict, spec: dict) -> dict:
+    output = Path(config["project"]["output_dir"])
+    manifest = json.loads((output / "canonical_manifest.json").read_text(encoding="utf-8"))
+    config_hash = str(spec["config_sha256"])
+    source_hash = str(spec["source_manifest_sha256"])
+    if config_hash != str(manifest["config_sha256"]):
+        raise ValueError("run spec config identity does not match canonical_manifest.json")
+    actual_source_hash = sha256_bytes(canonical_json(manifest["source"]).encode("utf-8"))
+    if source_hash != actual_source_hash:
+        raise ValueError("run spec source identity does not match canonical_manifest.json")
+    prompt_window_hash = str(spec["planned_dose"]["prompt_batches_sha256"])
+    global_step = int(spec.get("pre_intervention_step", spec.get("start_step", 0)))
+
+    resume_from = spec.get("resume_from_path")
+    if resume_from:
+        identity, evidence = checkpoint_identity(
+            Path(resume_from),
+            global_step=global_step,
+            rollout_seed=int(spec["rollout_seed"]),
+            config_hash=config_hash,
+            prompt_window_hash=prompt_window_hash,
+            source_manifest_hash=source_hash,
+        )
+        kind = "resumed_checkpoint"
+    else:
+        actor = tree_identity(Path(config["paths"]["student_model"]))
+        identity = CheckpointIdentity(
+            global_step=0,
+            actor_hash=actor["sha256"],
+            optimizer_hash=EMPTY_SHA256,
+            trainer_state_hash=EMPTY_SHA256,
+            dataloader_hash=EMPTY_SHA256,
+            rollout_seed=int(spec["rollout_seed"]),
+            config_hash=config_hash,
+            prompt_window_hash=prompt_window_hash,
+            source_manifest_hash=source_hash,
+        )
+        identity.validate()
+        evidence = {"student_model": actor}
+        kind = "fresh_model"
+
+    payload = {
+        "schema_version": 1,
+        "execution_id": spec.get("execution_id", spec["run_id"]),
+        "identity_group": spec.get("identity_group"),
+        "kind": kind,
+        "identity": asdict(identity),
+        "identity_sha256": identity.sha256,
+        "evidence": evidence,
+    }
+    identities = output / "identities"
+    group = spec.get("identity_group")
+    if group:
+        group_path = identities / "groups" / f"{group}.json"
+        if group_path.is_file():
+            locked = json.loads(group_path.read_text(encoding="utf-8"))
+            compare_branch_identities(
+                CheckpointIdentity(**locked["identity"]),
+                identity,
+            )
+        else:
+            _write_json(group_path, payload)
+    path = identities / "runs" / f"{payload['execution_id']}.json"
+    _write_json(path, payload)
+    return {"path": str(path), "sha256": identity.sha256, "kind": kind}
 
 
 def build_argv(config: dict, spec: dict) -> list[str]:
@@ -20,7 +102,10 @@ def build_argv(config: dict, spec: dict) -> list[str]:
     estimator = spec["estimator"]
     guard_estimator(estimator, training.get("forbidden_estimators", []))
     if estimator not in {training["opd_estimator"], training["rl_estimator"]}:
-        raise ValueError(f"controller or non-native run is not executable yet: {estimator}")
+        raise ValueError(
+            f"unsupported estimator {estimator!r}; the reference launcher accepts only "
+            f"{training['opd_estimator']!r} and {training['rl_estimator']!r}"
+        )
     is_opd = estimator == training["opd_estimator"]
     norm_adv_by_std = True if is_opd else bool(training.get("rl_norm_adv_by_std_in_grpo", True))
     loss_agg_mode = (
@@ -34,7 +119,7 @@ def build_argv(config: dict, spec: dict) -> list[str]:
         else training.get("rl_use_dynamic_bsz", True)
     )
     rollout = config["rollout"]
-    runtime = config["runtime_provisional"]
+    runtime = config["runtime"]
     verifier = config.get("verifier", {})
     output = Path(config["project"]["output_dir"])
     required_model_len = rollout["max_prompt_length"] + rollout["max_response_length"]
@@ -214,12 +299,14 @@ def main() -> None:
     )
     if spec is None:
         raise SystemExit(f"unknown run id: {args.run_id}")
+    pre_intervention = record_pre_intervention_identity(config, spec)
     argv = build_argv(config, spec)
     command_dir = Path(config["project"]["output_dir"]) / "commands"
     command_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "execution_id": args.run_id,
         "scientific_run_id": spec.get("scientific_run_id", spec["run_id"]),
+        "pre_intervention_identity": pre_intervention,
         "argv": argv,
         "shell": shlex.join(argv),
     }

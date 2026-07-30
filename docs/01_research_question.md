@@ -25,12 +25,11 @@ Signals are measured at or before the branch point and must not use endpoint
 labels. The current registry includes:
 
 - fraction of all-fail, mixed, and all-correct rollout groups;
-- mean absolute group-relative verifier advantage;
 - sampled-token OPD score and its length-normalized proxy;
-- response length, cap-hit rate, and boxed-format rate;
-- student/teacher top-k overlap and teacher mass outside student support on a
-  frozen diagnostic probe;
-- OPD and RL gradient norms and cosine on the same frozen trajectories.
+- response length, cap-hit rate, verifier outcome, and boxed-marker rate.
+
+Other signals may be supplied to the surface builder as external JSON. They are
+not described as built in until the repository contains their extraction path.
 
 The first goal is calibration: determine whether any signal is monotonically
 related to `Delta_future` across paired checkpoints. Only then is it sensible to
@@ -43,4 +42,3 @@ sampling settings, verifier, tokenizer, initial state, and endpoint evaluation.
 OPD and RL keep their native loss aggregation and advantage semantics; making
 their formulas identical would erase the intervention being studied. Compute
 and generated-token counts are reported as secondary dose measures.
-

@@ -1,5 +1,5 @@
 schema_version: 1
-runtime_provisional:
+runtime:
   n_gpus_per_node: 1
   model_dtype: bfloat16
   attention_implementation: sdpa
@@ -18,4 +18,3 @@ runtime_provisional:
   rollout_cpu_offload_gb: 0
   actor_micro_batch_size_per_gpu: 1
   teacher_micro_batch_size_per_gpu: 1
-

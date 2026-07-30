@@ -30,6 +30,13 @@ def config() -> dict:
             "primary_n": 4,
             "max_response_length": 512,
         },
+        "runtime": {
+            "n_gpus_per_node": 1,
+            "model_dtype": "bfloat16",
+            "rollout_gpu_memory_utilization": 0.2,
+            "actor_micro_batch_size_per_gpu": 1,
+            "teacher_micro_batch_size_per_gpu": 1,
+        },
     }
 
 
@@ -53,6 +60,14 @@ def test_placeholders_are_warnings_without_path_checks() -> None:
     report = inspect_config(value)
     assert report["ok"]
     assert any("student_model" in warning for warning in report["warnings"])
+
+
+def test_placeholders_are_errors_with_path_checks() -> None:
+    value = config()
+    value["paths"]["student_model"] = "CHANGE_ME/student"
+    report = inspect_config(value, check_paths=True)
+    assert not report["ok"]
+    assert any("student_model" in error for error in report["errors"])
 
 
 def test_unsaved_branch_point_is_rejected() -> None:

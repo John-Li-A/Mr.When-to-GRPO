@@ -56,6 +56,10 @@ def run_specs(config: dict) -> list[dict]:
 
     common = {
         "manifest_sha256": sha256_file(output / "canonical_manifest.json"),
+        "config_sha256": manifest["config_sha256"],
+        "source_manifest_sha256": sha256_bytes(
+            canonical_json(manifest["source"]).encode("utf-8")
+        ),
         "n": config["rollout"]["n"],
         "max_response_length": config["rollout"]["max_response_length"],
         "prompt_batch_size": config["data"]["prompt_batch_size"],
@@ -127,6 +131,8 @@ def run_specs(config: dict) -> list[dict]:
                 "target_global_step": checkpoint + training["branch_horizon"],
                 "prompt_batches": future,
                 "planned_dose": dose(training["branch_horizon"], future),
+                "identity_group": f"{protocol_id}_branch_t{checkpoint}",
+                "pre_intervention_step": checkpoint,
                 "train_file": str(output / "discovery_schedule.parquet"),
                 "default_local_dir": str(runs_root / branch_run_id / "checkpoint"),
                 "final_checkpoint_actor_dir": str(
@@ -146,15 +152,12 @@ def run_specs(config: dict) -> list[dict]:
                 "updates": validation_updates,
                 "target_global_step": validation_updates,
                 "prompt_batches": validation_queue,
+                "planned_dose": dose(validation_updates, validation_queue),
                 "train_file": str(output / "validation_schedule.parquet"),
                 "rollout_seed": config["rollout"]["seeds"]["validation"],
                 "resume_mode": "disable",
                 "default_local_dir": str(runs_root / run_id(f"validation_{arm}") / "checkpoint"),
             })
-        specs.extend([
-            {**common, "run_id": run_id("validation_fixed_handoff"), "phase": "validation", "estimator": "scheduled_native_opd_to_grpo", "updates": validation_updates, "target_global_step": validation_updates, "prompt_batches": validation_queue, "train_file": str(output / "validation_schedule.parquet"), "rollout_seed": config["rollout"]["seeds"]["validation"], "resume_mode": "disable", "default_local_dir": str(runs_root / run_id("validation_fixed_handoff") / "checkpoint"), "controller_pending": True},
-            {**common, "run_id": run_id("validation_monitor_handoff"), "phase": "validation", "estimator": "monitor_controlled_native_opd_to_grpo", "updates": validation_updates, "target_global_step": validation_updates, "prompt_batches": validation_queue, "train_file": str(output / "validation_schedule.parquet"), "rollout_seed": config["rollout"]["seeds"]["validation"], "resume_mode": "disable", "default_local_dir": str(runs_root / run_id("validation_monitor_handoff") / "checkpoint"), "controller_pending": True},
-        ])
     return specs
 
 
@@ -162,10 +165,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--phase", choices=["all", "discovery", "validation"], default="all")
-    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    if not args.dry_run:
-        raise SystemExit("GPU execution is intentionally disabled until the native verl adapter and RNG resume gates pass")
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     specs = run_specs(config)
     if args.phase == "discovery":

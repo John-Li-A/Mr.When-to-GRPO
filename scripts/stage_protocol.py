@@ -70,6 +70,8 @@ def build_execution_specs(config: dict, formal_specs: list[dict]) -> list[dict]:
             "prompt_batches": first_batches,
             "planned_dose": _dose(config, initial_stop, first_batches),
             "save_steps": [initial_stop],
+            "identity_group": f"{protocol_id}_branch_t0",
+            "pre_intervention_step": 0,
             "final_checkpoint_actor_dir": str(
                 Path(trunk["default_local_dir"])
                 / f"global_step_{initial_stop}"
@@ -85,6 +87,7 @@ def build_execution_specs(config: dict, formal_specs: list[dict]) -> list[dict]:
             "scientific_run_id": trunk_id,
             "execution_stage": "post_t0_continuation",
             "start_step": initial_stop,
+            "pre_intervention_step": initial_stop,
             "updates": final_stop - initial_stop,
             "target_global_step": final_stop,
             "prompt_batches": remaining_batches,

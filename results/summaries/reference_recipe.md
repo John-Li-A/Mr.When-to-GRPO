@@ -17,3 +17,6 @@ repository. They validate the harness; they are not a handoff result.
 The repository does not publish a switch-point claim from these checks. A
 handoff claim requires paired held-out OPD and GRPO endpoint summaries at
 registered branch points, assembled by `when2grpo-surface`.
+
+The corresponding machine-readable values and source-artifact hashes are in
+`results/reference_evidence.json`.

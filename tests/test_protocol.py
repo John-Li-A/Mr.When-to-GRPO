@@ -18,7 +18,10 @@ class LauncherGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / "artifacts"
             output.mkdir()
-            (output / "canonical_manifest.json").write_text("{}\n", encoding="utf-8")
+            (output / "canonical_manifest.json").write_text(
+                json.dumps({"config_sha256": "a" * 64, "source": {"commit": "demo"}}) + "\n",
+                encoding="utf-8",
+            )
             queue = [[f"p{step}"] for step in range(12)]
             (output / "discovery_prompt_queue.json").write_text(
                 json.dumps(queue) + "\n", encoding="utf-8"

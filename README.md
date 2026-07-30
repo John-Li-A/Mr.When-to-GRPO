@@ -2,60 +2,56 @@
 
 **A paired-intervention toolkit for OPD→GRPO switch-point discovery.**
 
-Recent OPD and hybrid post-training work increasingly relies on signals such as
-verifier contrast, teacher–student support gap, entropy, or fixed decay
-schedules to decide how long a student should keep following a teacher. These
-signals are difficult to compare when the dataset, prompt stream, response cap,
-training dose, or endpoint evaluation changes at the same time.
+Many post-training recipes use verifier contrast, teacher–student disagreement,
+entropy, or a fixed schedule to decide when a student should stop following a
+teacher and rely on reinforcement learning. Those signals are hard to compare
+when the prompt stream, rollout dose, response cap, or endpoint evaluation also
+changes.
 
-Mr. When-to-GRPO provides the missing test bench. Given a set of candidate
-checkpoints, it forks each checkpoint into two matched futures—continued OPD and
-switched GRPO—and measures which one yields greater held-out gain.
-
-It does not prescribe a universal handoff rule. It makes handoff hypotheses
-testable.
-
-## What it produces
+Mr. When-to-GRPO turns the question into a matched experiment. At each candidate
+checkpoint, it forks the same student state into two futures:
 
 ```text
-candidate checkpoint S_t
-        |
-        +-- continue sampled-token OPD for H updates -- evaluate E_OPD
-        |
-        +-- switch to Dr.GRPO for H updates ----------- evaluate E_GRPO
+checkpoint S_t
+    ├── continue sampled-token OPD for H updates ── evaluate E_OPD
+    └── switch to Dr.GRPO for H updates ─────────── evaluate E_GRPO
 
-paired label at t:  Delta(t) = E_GRPO - E_OPD
+paired outcome: Δ(t) = E_GRPO - E_OPD
 ```
 
-For example, sweeping candidate checkpoints `[0, 20, 40]` produces a handoff
-surface like the one below. Candidate checkpoints and the branch horizon are
-fully configurable.
+It does not claim a universal handoff rule. It provides the launcher, identity
+checks, rollout diagnostics, and surface builder needed to test one.
 
-| switch step | mixed-group rate | OPD score | cap-hit rate | OPD endpoint | GRPO endpoint | GRPO − OPD |
-|---:|---:|---:|---:|---:|---:|---:|
-| 0 | … | … | … | … | … | … |
-| 20 | … | … | … | … | … | … |
-| 40 | … | … | … | … | … | … |
+## Outputs
 
-Candidate signals are measured before the branch. Endpoint gain is measured on
-the same held-out panel after an equal update horizon. The resulting table can
-be used to inspect a fixed schedule, calibrate a proposed signal, or compare
-several handoff heuristics.
+A sweep over configurable checkpoints such as `[0, 20, 40]` produces one row
+per matched fork:
 
-## Included tools
+| branch point | candidate signal(s) | OPD endpoint | GRPO endpoint | GRPO − OPD | label |
+|---:|---:|---:|---:|---:|---|
+| 0 | … | … | … | … | … |
+| 20 | … | … | … | … | … |
+| 40 | … | … | … | … | … |
 
-- `when2grpo-doctor`: validate branch geometry, response caps, panels, and paths
-- `when2grpo-plan`: materialize matched OPD/GRPO branches over candidate points
-- `when2grpo-launch`: emit or execute the pinned verl command for one branch
-- `when2grpo-audit`: recover verifier contrast, truncation, format, and OPD signals from rollouts
-- `when2grpo-surface`: join paired endpoint summaries and optional signals into CSV/JSON
+The label uses a configurable equivalence band. It is a display convention,
+not a statistical significance claim.
 
-The harness also locks prompt order, rollout seeds, checkpoint identity,
-dataloader continuation, model/tokenizer provenance, and train/eval leakage
-checks. Those controls are the difference between a switch-point plot and a
-paired intervention.
+The paired comparison locks:
 
-## Quick start: inspect the CPU-only surface demo
+- source checkpoint, actor, optimizer, scheduler/RNG, and dataloader state;
+- future prompt batches, rollout seed, sample count, and response cap;
+- dataset, tokenizer, verifier implementation, and sampling parameters;
+- endpoint model identity and held-out evaluation panel.
+
+## Included commands
+
+- `when2grpo-doctor` — validate branch geometry, runtime fields, panels, and paths
+- `when2grpo-plan` — materialize matched OPD/GRPO run specifications
+- `when2grpo-launch` — hash the pre-intervention state, then emit or execute one pinned verl run
+- `when2grpo-audit` — recover verifier contrast, OPD score, length, truncation, and format signals
+- `when2grpo-surface` — join fully matched endpoint summaries into CSV and JSON
+
+## CPU-only demo
 
 ```bash
 python -m venv .venv
@@ -75,16 +71,65 @@ when2grpo-surface \
   --output-dir /tmp/when2grpo-surface
 ```
 
-No GPU, model weights, or external datasets are needed for this demo.
+The demo uses synthetic records and needs no model, GPU, or external dataset.
 
-## Run a handoff sweep
+## Reference recipe
 
-The repository ships a Qwen3 Math reference recipe as four composable fragments.
-Edit the `CHANGE_ME` paths, then compose and inspect the experiment:
+The included recipe is one tested starting point:
+
+- student: `Qwen/Qwen3-1.7B-Base`;
+- teacher: `lllyx/Qwen3-4B-Base-GRPO` at revision
+  `1f3b2966edfb75f2f98a00617588c1f748088422`;
+- training data: the MATH-12K native-verl artifact in pinned THUNLP OPD;
+- objectives: sampled-token OPD and native Dr.GRPO;
+- rollout shape: `B=64`, `n=4`, response cap 7168;
+- exercised hardware: one 96GB RTX PRO 6000.
+
+The checked evidence covers exact-shape OPD updates, an OPD→Dr.GRPO
+checkpoint-resume gate, prompt-queue audits, and matched student/teacher
+evaluation. It validates the execution path, not a preferred switch point. See
+[reference evidence](results/reference_evidence.json) and the
+[scope statement](docs/05_scope_and_non_goals.md).
+
+## Full setup
+
+Clone the pinned training source and install the tested runtime:
 
 ```bash
+git clone https://github.com/thunlp/OPD.git external/OPD
+git -C external/OPD checkout 4532fd35ccfdde82adc918b265e4c964534e83d1
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements/reference-runtime.txt
+pip install -e external/OPD/verl --no-deps
 pip install -e ".[data,test]"
 
+for patch in patches/*.patch; do
+  git -C external/OPD apply "$(realpath "$patch")"
+done
+```
+
+The reference path uses SDPA and does not require FlashAttention. CUDA driver
+compatibility still depends on the host; the recorded stack uses PyTorch 2.8.0
+and CUDA 12.8-compatible wheels.
+
+Materialize the exact training artifact from the pinned checkout. The script
+checks the Git commit, both upstream file hashes, and all 12,000 JSON→parquet
+row mappings before copying the byte-identical parquet:
+
+```bash
+python scripts/materialize_math12k.py \
+  --opd-root external/OPD \
+  --output data/MATH/train.parquet
+```
+
+Download the two models and evaluation panels listed in
+[`data/README.md`](data/README.md), then replace the `CHANGE_ME` paths and
+compose the machine-local config:
+
+```bash
 python scripts/compose_config.py \
   configs/models/qwen3_math.yaml \
   configs/train/paired_handoff.yaml \
@@ -94,12 +139,12 @@ python scripts/compose_config.py \
 
 when2grpo-doctor --config configs/experiment.yaml --check-paths
 python scripts/prepare_protocol.py --config configs/experiment.yaml
-when2grpo-plan --config configs/experiment.yaml --dry-run
+when2grpo-plan --config configs/experiment.yaml
 python scripts/stage_protocol.py --config configs/experiment.yaml
 python scripts/plan_evaluation.py --config configs/experiment.yaml
 ```
 
-Inspect a generated command before authorizing GPU execution:
+Inspect one command and its recorded pre-intervention identity before running:
 
 ```bash
 when2grpo-launch \
@@ -112,7 +157,9 @@ HANDOFF_GPU_AUTHORIZED=1 when2grpo-launch \
   --run-id paired_handoff_v1_discovery_trunk_opd_t0_t10
 ```
 
-After the planned endpoint evaluations write their `summary.json` files:
+Each evaluation command generated by `plan_evaluation.py` is executable and
+writes a model identity manifest plus a summary. After every paired endpoint is
+present:
 
 ```bash
 when2grpo-surface \
@@ -122,46 +169,27 @@ when2grpo-surface \
   --output-dir results/my-sweep
 ```
 
-`--signals` is optional. Its JSON object maps each branch step to any nested
-numeric signal dictionary; scalar fields are flattened into the surface table.
+`--signals` is optional. Its JSON object maps branch points to nested numeric
+diagnostics; scalar values are flattened into the output table.
 
-## Built-in signal families
+## What the rollout audit currently measures
 
-- **Verifier availability:** all-fail, mixed, all-correct, and zero-GRPO-contrast group rates
-- **Teacher pressure:** sampled-token OPD score and length-normalized score
-- **Generation health:** response length, cap-hit rate, and output-format rate
-- **Support diagnostics:** student/teacher top-k overlap and teacher mass outside student support
-- **Objective relation:** OPD/GRPO gradient norms and cosine on frozen trajectories
+- all-fail, mixed, all-correct, and zero-GRPO-contrast group rates;
+- sampled-token OPD trajectory score and length-normalized proxy;
+- response length, cap-hit rate, verifier outcome, and output-format rate.
 
-Users can add candidate signals without changing the paired branch protocol.
-The tool treats them as predictors to be calibrated against future relative
-gain, not as handoff rules by definition.
-
-## Reference recipe
-
-The included recipe uses Qwen3-1.7B-Base as student, a Qwen3-4B-GRPO teacher,
-MATH-12K training prompts, and a pinned THUNLP OPD/verl commit. It has exercised:
-
-- exact `B=64`, `n=4`, response-cap-7168 sampled-token OPD on one 96GB GPU;
-- complete checkpoint continuation from OPD into native Dr.GRPO;
-- deterministic prompt queues and exact rollout-to-schedule audits;
-- matched student/teacher evaluation and rollout signal recovery.
-
-These artifacts validate the harness and provide a reproducible starting point.
-They are not presented as a universal OPD→GRPO boundary. See
-[the reference recipe](docs/04_reference_recipe.md) and
-[scope and non-goals](docs/05_scope_and_non_goals.md).
+Additional candidate signals can be joined as external JSON. The repository
+does not advertise a signal family until its extraction path is implemented.
 
 ## Repository map
 
-- `src/when_to_grpo/`: branch planning, config checks, rollout audits, and surface assembly
-- `scripts/`: data preparation, staged execution, checkpoint merge, and evaluation
-- `configs/`: model, training, hardware, and evaluation fragments
-- `patches/`: minimal diffs against the pinned OPD/verl source
-- `data/examples/`: synthetic CPU-only examples of the rollout and surface schemas
-- `results/`: checked reference observations; no raw trajectories or checkpoints
-- `docs/`: causal question, recipe audit, design lessons, reference recipe, and scope
+- `src/when_to_grpo/` — protocol checks, identity locking, rollout audit, and surface assembly
+- `scripts/` — data materialization, protocol staging, checkpoint merge, and evaluation
+- `configs/` — model, training, hardware, and evaluation fragments
+- `patches/` — five audited diffs against the pinned OPD/verl source
+- `data/examples/` — synthetic CPU-only schema examples
+- `results/` — compact reference-path evidence; no claimed handoff result
+- `docs/` — research question, recipe audit, scope, provenance, and [related work](docs/06_related_work.md)
 
-The full experiment workspace is intentionally excluded. Model weights,
-checkpoints, raw generations, local machine paths, and retired launchers do not
-belong in a reusable switch-point tool.
+Model weights, checkpoints, raw trajectories, local paths, and generated
+experiment workspaces are intentionally excluded.

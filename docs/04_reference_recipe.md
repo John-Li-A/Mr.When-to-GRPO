@@ -13,6 +13,8 @@ handoff schedule.
   source;
 - rollout shape: `B=64`, `n=4`, response cap 7168;
 - reference hardware: one 96GB RTX PRO 6000.
+- reference runtime: Python 3.12, PyTorch 2.8.0, vLLM 0.11.0, Ray 2.56.1,
+  Transformers 4.55.4, and SDPA.
 
 Model, tokenizer, dataset, source, verifier, prompt template, and evaluation
 identities are recorded in the generated protocol manifest. A change to any of
@@ -33,10 +35,10 @@ when one objective receives almost no usable signal.
 
 ## Exercised systems path
 
-The following parts of the reference recipe have been run end to end:
+The following parts of the reference recipe have been exercised:
 
 - three exact-shape OPD updates at `B=64`, `n=4`, cap 7168 on one 96GB GPU;
-- complete checkpoint continuation from OPD into native Dr.GRPO, including
+- a checkpoint-resume gate from OPD into native Dr.GRPO, covering model,
   optimizer, scheduler, RNG, and dataloader state;
 - a ten-update OPD pilot covering 640 prompts and 2,560 trajectories;
 - exact prompt-queue and rollout-to-schedule audits;
@@ -55,5 +57,6 @@ branch plan defines matched OPD and GRPO futures at every candidate checkpoint.
 After endpoint evaluation, `when2grpo-surface` joins those futures into the
 handoff surface.
 
-The checked observations above validate the execution path. They do not
+The checked observations above validate the execution path. Their compact
+machine-readable record is `results/reference_evidence.json`. They do not
 identify a handoff point or validate any monitoring signal.

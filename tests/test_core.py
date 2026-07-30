@@ -13,14 +13,14 @@ from when_to_grpo.core import (
     branch_prompt_window,
     budget_projection,
     build_prompt_queue,
+    checkpoint_identity,
     compare_branch_identities,
     deterministic_split,
-    gradient_relation,
     group_reward_signals,
     guard_estimator,
     masked_scalar_stats,
     sha256_file,
-    topk_support_signals,
+    tree_identity,
 )
 
 
@@ -73,27 +73,46 @@ class HandoffCoreTests(unittest.TestCase):
         self.assertEqual(result["mean_abs"], 1.5)
         self.assertEqual(result["positive_rate"], 0.5)
 
-    def test_topk_support(self):
-        result = topk_support_signals(
-            np.array([[[1, 2]]]), np.log(np.array([[[0.8, 0.2]]])),
-            np.array([[[2, 3]]]), np.log(np.array([[[0.6, 0.3]]])),
-            np.array([[True]]),
-        )
-        self.assertAlmostEqual(result["topk_token_overlap"], 0.5)
-        self.assertAlmostEqual(result["teacher_topk_mass_covered_by_student_topk"], 0.6)
-        self.assertAlmostEqual(result["teacher_supported_student_low_mass"], 0.3)
-
-    def test_gradient_relation(self):
-        result = gradient_relation([np.array([1.0, 0.0])], [np.array([1.0, 1.0])])
-        self.assertAlmostEqual(result["opd_grad_norm"], 1.0)
-        self.assertAlmostEqual(result["gradient_cosine"], 2 ** -0.5)
-
     def test_checkpoint_identity_mismatch_is_rejected(self):
         digest = "a" * 64
-        left = CheckpointIdentity(10, digest, digest, digest, digest, digest, 1, digest, digest, digest)
-        right = CheckpointIdentity(10, digest, digest, digest, digest, digest, 2, digest, digest, digest)
+        left = CheckpointIdentity(10, digest, digest, digest, digest, 1, digest, digest, digest)
+        right = CheckpointIdentity(10, digest, digest, digest, digest, 2, digest, digest, digest)
         with self.assertRaisesRegex(ValueError, "rollout_seed"):
             compare_branch_identities(left, right)
+
+    def test_checkpoint_tree_identity_covers_all_resume_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "global_step_3"
+            actor = root / "actor"
+            (actor / "huggingface").mkdir(parents=True)
+            (actor / "model_world_size_1_rank_0.pt").write_bytes(b"model")
+            (actor / "optim_world_size_1_rank_0.pt").write_bytes(b"optim")
+            (actor / "extra_state_world_size_1_rank_0.pt").write_bytes(b"scheduler+rng")
+            (actor / "huggingface" / "config.json").write_text("{}", encoding="utf-8")
+            (root / "data.pt").write_bytes(b"dataloader")
+            digest = "c" * 64
+            identity, evidence = checkpoint_identity(
+                root,
+                global_step=3,
+                rollout_seed=7,
+                config_hash=digest,
+                prompt_window_hash=digest,
+                source_manifest_hash=digest,
+            )
+            self.assertEqual(identity.global_step, 3)
+            self.assertEqual(len(identity.sha256), 64)
+            self.assertIn("actor/model_world_size_1_rank_0.pt", evidence["actor"]["files"])
+            self.assertIn("actor/optim_world_size_1_rank_0.pt", evidence["optimizer"]["files"])
+
+    def test_tree_identity_changes_with_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "model.safetensors"
+            path.write_bytes(b"left")
+            left = tree_identity(root)["sha256"]
+            path.write_bytes(b"right")
+            right = tree_identity(root)["sha256"]
+            self.assertNotEqual(left, right)
 
     def test_branch_result_delta(self):
         digest = "b" * 64

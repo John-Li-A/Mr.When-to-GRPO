@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -21,12 +20,88 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+EMPTY_SHA256 = sha256_bytes(b"")
+
+
 def sha256_file(path: str | Path, chunk_size: int = 8 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         while chunk := handle.read(chunk_size):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def build_evaluation_protocol(config: Mapping[str, Any], n: int) -> dict[str, Any]:
+    """Return the evaluation fields that must be fixed before endpoint runs."""
+    evaluation = config["evaluation"]
+    rollout = config["rollout"]
+    max_tokens = int(evaluation["max_response_length"])
+    if max_tokens != int(rollout["max_response_length"]):
+        raise ValueError("evaluation and training response caps must match")
+    if int(n) < 1:
+        raise ValueError("evaluation sample count must be positive")
+    verifier = config.get("verifier", {})
+    verifier_path = Path(config["paths"]["verl_root"]) / str(
+        verifier.get("train_relative_path", "verl/utils/reward_score/ttrl_math/__init__.py")
+    )
+    if not verifier_path.is_file():
+        raise FileNotFoundError(verifier_path)
+    return {
+        "n": int(n),
+        "temperature": float(evaluation["temperature"]),
+        "top_p": float(evaluation["top_p"]),
+        "top_k": int(evaluation["top_k"]),
+        "repetition_penalty": float(evaluation["repetition_penalty"]),
+        "max_tokens": max_tokens,
+        "max_prompt_length": int(rollout["max_prompt_length"]),
+        "max_model_len": int(rollout["max_prompt_length"]) + max_tokens,
+        "seed": int(evaluation["seed"]),
+        "enable_thinking": bool(rollout["enable_thinking"]),
+        "verifier": {
+            "label": str(verifier.get("label", "configured-verifier")),
+            "module": str(verifier.get("eval_module", "verl.utils.reward_score.ttrl_math")),
+            "function": str(verifier.get("eval_function", "compute_score")),
+            "score_field": str(verifier.get("score_field", "score")),
+            "format_field": str(verifier.get("format_field", "format_score")),
+            "source_sha256": sha256_file(verifier_path),
+        },
+    }
+
+
+def file_set_identity(root: str | Path, paths: Sequence[str | Path]) -> dict[str, Any]:
+    root = Path(root)
+    files: dict[str, dict[str, Any]] = {}
+    for raw_path in sorted((Path(path) for path in paths), key=lambda path: path.as_posix()):
+        path = raw_path if raw_path.is_absolute() else root / raw_path
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        relative = path.relative_to(root).as_posix()
+        files[relative] = {"bytes": path.stat().st_size, "sha256": sha256_file(path)}
+    if not files:
+        raise ValueError(f"identity file set is empty under {root}")
+    return {
+        "root": str(root),
+        "files": files,
+        "sha256": sha256_bytes(canonical_json(files).encode("utf-8")),
+    }
+
+
+def tree_identity(
+    root: str | Path,
+    *,
+    include: Callable[[Path], bool] | None = None,
+) -> dict[str, Any]:
+    root = Path(root)
+    if not root.is_dir():
+        raise FileNotFoundError(root)
+    paths = [
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and path.name not in {"when2grpo_identity.json", ".when2grpo_identity.json"}
+        and (include is None or include(path.relative_to(root)))
+    ]
+    return file_set_identity(root, paths)
 
 
 def normalize_prompt(prompt: Any) -> list[dict[str, str]]:
@@ -200,70 +275,16 @@ def masked_scalar_stats(values: np.ndarray, mask: np.ndarray) -> dict[str, float
     }
 
 
-def topk_support_signals(
-    student_ids: np.ndarray,
-    student_logp: np.ndarray,
-    teacher_ids: np.ndarray,
-    teacher_logp: np.ndarray,
-    token_mask: np.ndarray,
-) -> dict[str, float]:
-    student_ids = np.asarray(student_ids)
-    teacher_ids = np.asarray(teacher_ids)
-    student_logp = np.asarray(student_logp, dtype=float)
-    teacher_logp = np.asarray(teacher_logp, dtype=float)
-    token_mask = np.asarray(token_mask, dtype=bool)
-    if student_ids.shape != student_logp.shape or teacher_ids.shape != teacher_logp.shape:
-        raise ValueError("each top-k id tensor must match its log-prob tensor")
-    if student_ids.shape[:-1] != teacher_ids.shape[:-1] or token_mask.shape != student_ids.shape[:-1]:
-        raise ValueError("student, teacher, and token mask prefixes must agree")
-    overlaps = []
-    teacher_mass_covered = []
-    teacher_supported_student_low_mass = []
-    for index in np.argwhere(token_mask):
-        prefix = tuple(index)
-        s_ids = student_ids[prefix]
-        t_ids = teacher_ids[prefix]
-        s_lp = student_logp[prefix]
-        t_lp = teacher_logp[prefix]
-        common = np.isin(t_ids, s_ids)
-        overlaps.append(float(common.mean()))
-        teacher_mass_covered.append(float(np.exp(t_lp[common]).sum()))
-        s_by_id = {int(token): float(lp) for token, lp in zip(s_ids, s_lp)}
-        low_mass = [math.exp(s_by_id.get(int(token), -math.inf)) < 1e-3 for token in t_ids]
-        teacher_supported_student_low_mass.append(float(np.exp(t_lp[np.asarray(low_mass)]).sum()))
-    if not overlaps:
-        raise ValueError("token_mask selects no tokens")
-    return {
-        "topk_token_overlap": float(np.mean(overlaps)),
-        "teacher_topk_mass_covered_by_student_topk": float(np.mean(teacher_mass_covered)),
-        "teacher_supported_student_low_mass": float(np.mean(teacher_supported_student_low_mass)),
-    }
-
-
-def gradient_relation(opd_grads: Sequence[np.ndarray], rl_grads: Sequence[np.ndarray]) -> dict[str, float]:
-    if len(opd_grads) != len(rl_grads) or not opd_grads:
-        raise ValueError("OPD and RL gradient lists must be non-empty and aligned")
-    opd = np.concatenate([np.asarray(item, dtype=float).ravel() for item in opd_grads])
-    rl = np.concatenate([np.asarray(item, dtype=float).ravel() for item in rl_grads])
-    if opd.shape != rl.shape:
-        raise ValueError("OPD and RL gradient vectors must have identical shapes")
-    opd_norm = float(np.linalg.norm(opd))
-    rl_norm = float(np.linalg.norm(rl))
-    cosine = float(np.dot(opd, rl) / (opd_norm * rl_norm)) if opd_norm and rl_norm else float("nan")
-    return {"opd_grad_norm": opd_norm, "rl_grad_norm": rl_norm, "gradient_cosine": cosine}
-
-
 @dataclass(frozen=True)
 class CheckpointIdentity:
     global_step: int
     actor_hash: str
     optimizer_hash: str
-    scheduler_hash: str
+    trainer_state_hash: str
     dataloader_hash: str
-    driver_rng_hash: str
     rollout_seed: int
     config_hash: str
-    prompt_queue_hash: str
+    prompt_window_hash: str
     source_manifest_hash: str
 
     def validate(self) -> None:
@@ -274,6 +295,63 @@ class CheckpointIdentity:
                 continue
             if not isinstance(value, str) or len(value) != 64:
                 raise ValueError(f"{field} must be a SHA256 hex digest")
+            try:
+                int(value, 16)
+            except ValueError as error:
+                raise ValueError(f"{field} must be a SHA256 hex digest") from error
+
+    @property
+    def sha256(self) -> str:
+        self.validate()
+        return sha256_bytes(canonical_json(asdict(self)).encode("utf-8"))
+
+
+def checkpoint_identity(
+    checkpoint_dir: str | Path,
+    *,
+    global_step: int,
+    rollout_seed: int,
+    config_hash: str,
+    prompt_window_hash: str,
+    source_manifest_hash: str,
+) -> tuple[CheckpointIdentity, dict[str, Any]]:
+    checkpoint_dir = Path(checkpoint_dir)
+    actor_dir = checkpoint_dir / "actor"
+    if not actor_dir.is_dir():
+        raise FileNotFoundError(actor_dir)
+    actor_paths = [
+        path
+        for path in actor_dir.rglob("*")
+        if path.is_file()
+        and not path.name.startswith("optim_")
+        and not path.name.startswith("extra_state_")
+    ]
+    optimizer_paths = list(actor_dir.glob("optim_*.pt"))
+    trainer_state_paths = list(actor_dir.glob("extra_state_*.pt"))
+    dataloader_path = checkpoint_dir / "data.pt"
+    actor = file_set_identity(checkpoint_dir, actor_paths)
+    optimizer = file_set_identity(checkpoint_dir, optimizer_paths)
+    trainer_state = file_set_identity(checkpoint_dir, trainer_state_paths)
+    dataloader = file_set_identity(checkpoint_dir, [dataloader_path])
+    identity = CheckpointIdentity(
+        global_step=global_step,
+        actor_hash=actor["sha256"],
+        optimizer_hash=optimizer["sha256"],
+        trainer_state_hash=trainer_state["sha256"],
+        dataloader_hash=dataloader["sha256"],
+        rollout_seed=rollout_seed,
+        config_hash=config_hash,
+        prompt_window_hash=prompt_window_hash,
+        source_manifest_hash=source_manifest_hash,
+    )
+    identity.validate()
+    return identity, {
+        "checkpoint_dir": str(checkpoint_dir),
+        "actor": actor,
+        "optimizer": optimizer,
+        "trainer_state": trainer_state,
+        "dataloader": dataloader,
+    }
 
 
 def compare_branch_identities(left: CheckpointIdentity, right: CheckpointIdentity) -> None:

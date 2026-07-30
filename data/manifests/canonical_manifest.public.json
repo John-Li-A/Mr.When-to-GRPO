@@ -9,14 +9,22 @@
     "revision": "1f3b2966edfb75f2f98a00617588c1f748088422"
   },
   "training_data": {
-    "identity": "MATH-12K native-verl conversion",
+    "identity": "MATH-12K native-verl parquet audited against pinned OPD source JSON",
+    "source_json_sha256": "ad41fe4ffc830efcdac9fc58b477d9d91a74d5c4c687e275a800af2fa58ae5b3",
     "rows": 12000,
     "unique_prompts": 11998,
     "sha256": "53e815b8781e3b4513c7cf9eb4a003b4f4af27198f1d06458336785626b0229d"
   },
   "source": {
     "repo": "https://github.com/thunlp/OPD.git",
-    "commit": "4532fd35ccfdde82adc918b265e4c964534e83d1"
+    "commit": "4532fd35ccfdde82adc918b265e4c964534e83d1",
+    "patch_sha256": {
+      "01_rollout_observability.patch": "33587be22141d233ec72e28f0e57f1fbbd3b7a88a0e05c8186a87d88878904ab",
+      "02_rollout_seed.patch": "ec818c791420cb780cc0f0dceb5b455df0dca58931314cabf69e7c2770222e49",
+      "03_actor_selected_token_memory.patch": "c8d3bf5d01ec117a6385798263dd4efd4c44ad6deae8781515d1cc4853fd2274",
+      "04_chunked_logprob_helper.patch": "57dd47f31cce8439eeb2f6ee44c115326fda7a7239bba0d4ac68cb4389c4bb89",
+      "05_teacher_fused_alignment.patch": "fe028ec3432607cf471236002eee70e690d2e55a0e0bbd8be00fba381982d75c"
+    }
   },
   "split_counts": {
     "calibration": 256,
@@ -33,4 +41,3 @@
     "enable_thinking": false
   }
 }
-

@@ -6,6 +6,9 @@ generated datasets are intentionally excluded.
 
 - `tables/validated_checks.csv` records the empirical gates exercised by the
   Qwen3 Math reference recipe.
+- `reference_evidence.json` records the locked protocol, source-artifact hashes,
+  baseline summaries, ten-update pilot accounting, and native resume-state
+  hashes in one machine-readable file.
 - `summaries/reference_recipe.md` explains what those gates do and do not
   validate.
 - `figures/README.md` defines which comparisons are suitable for plotting.

@@ -21,6 +21,7 @@ evaluation:
   max_num_batched_tokens: 8192
   primary_panel: MATH-500
   primary_metric: avg_at_4
+  equivalence_band: 0.01
   external_panels: [MATH-500, AMC23, AIME24, AIME25]
   required_prompt_substrings: ["\\boxed{}"]
 

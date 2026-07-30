@@ -6,6 +6,13 @@ from pathlib import Path
 
 import yaml
 
+from when_to_grpo.core import (
+    build_evaluation_protocol,
+    canonical_json,
+    sha256_bytes,
+    sha256_file,
+)
+
 
 def build_plan(config: dict, config_path: str = "configs/experiment.yaml") -> dict:
     output = Path(config["project"]["output_dir"])
@@ -84,6 +91,9 @@ def build_plan(config: dict, config_path: str = "configs/experiment.yaml") -> di
     def add_eval(model: dict, panel: str, n: int) -> None:
         eval_id = f"{model['model_id']}__{panel.lower()}"
         output_dir = root / "evaluations" / eval_id
+        locked_protocol = build_evaluation_protocol(config, n)
+        protocol_sha256 = sha256_bytes(canonical_json(locked_protocol).encode("utf-8"))
+        dataset_sha256 = sha256_file(panel_paths[panel])
         argv = [
             "python",
             "scripts/evaluate.py",
@@ -91,6 +101,8 @@ def build_plan(config: dict, config_path: str = "configs/experiment.yaml") -> di
             config_path,
             "--model-path",
             model["merged_model"],
+            "--model-id",
+            model["model_id"],
             "--dataset",
             panel_paths[panel],
             "--panel",
@@ -99,6 +111,7 @@ def build_plan(config: dict, config_path: str = "configs/experiment.yaml") -> di
             str(n),
             "--output-dir",
             str(output_dir),
+            "--execute",
         ]
         eval_specs.append(
             {
@@ -107,7 +120,10 @@ def build_plan(config: dict, config_path: str = "configs/experiment.yaml") -> di
                 "model_path": model["merged_model"],
                 "panel": panel,
                 "dataset": panel_paths[panel],
+                "dataset_sha256": dataset_sha256,
                 "n": n,
+                "evaluation_protocol": locked_protocol,
+                "evaluation_protocol_sha256": protocol_sha256,
                 "output_dir": str(output_dir),
                 "argv": argv,
             }
@@ -174,6 +190,7 @@ def build_plan(config: dict, config_path: str = "configs/experiment.yaml") -> di
         "protocol_id": protocol_id,
         "primary_panel": primary_panel,
         "primary_metric": "avg_at_n",
+        "equivalence_band": float(config["evaluation"].get("equivalence_band", 0.0)),
         "branch_horizon": horizon,
         "models": models,
         "merge_specs": merge_specs,

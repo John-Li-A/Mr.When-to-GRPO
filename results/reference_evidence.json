@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "scope": "reference-path checks only; not a switch-point result",
+  "protocol": {
+    "student": "Qwen/Qwen3-1.7B-Base",
+    "teacher": "lllyx/Qwen3-4B-Base-GRPO@1f3b2966edfb75f2f98a00617588c1f748088422",
+    "training_data_sha256": "53e815b8781e3b4513c7cf9eb4a003b4f4af27198f1d06458336785626b0229d",
+    "opd_commit": "4532fd35ccfdde82adc918b265e4c964534e83d1",
+    "prompt_batch_size": 64,
+    "rollouts_per_prompt": 4,
+    "response_cap": 7168
+  },
+  "math500_evaluation": {
+    "dataset_sha256": "2e4c43a3d52175a773816f99f327d3ed5e3d15af6f479d87196a702cdb4f5411",
+    "rows": 500,
+    "n": 4,
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "seed": 20260801,
+    "student": {
+      "trajectory_count": 2000,
+      "avg_at_n": 0.255,
+      "pass_at_n": 0.574,
+      "nondegenerate_group_rate": 0.55,
+      "cap_hit_rate": 0.352,
+      "source_summary_sha256": "6637e4ba8d925f9168e453d5d1d25d0f46ad996a7a4485d1bc94ddb545539422"
+    },
+    "teacher": {
+      "trajectory_count": 2000,
+      "avg_at_n": 0.843,
+      "pass_at_n": 0.924,
+      "nondegenerate_group_rate": 0.186,
+      "cap_hit_rate": 0.0285,
+      "source_summary_sha256": "79c03a5625482b704b0552bc92657c511f8c4e757b2c5ac6399686b982b96093"
+    }
+  },
+  "ten_update_opd_pilot": {
+    "updates": 10,
+    "prompts": 640,
+    "trajectories": 2560,
+    "verified_correct_trajectories": 240,
+    "mixed_groups": 192,
+    "all_fail_groups": 448,
+    "cap_hit_trajectories": 117,
+    "source_signal_audit_sha256": "b3b894037f87de0653e0ff36a9b4af18276c91ec6c9b2005d78fd21496ab9d40"
+  },
+  "native_handoff_gate": {
+    "status": "pass",
+    "source_step": 1,
+    "target_step": 2,
+    "source_samples_yielded": 64,
+    "target_samples_yielded": 128,
+    "source_model_sha256": "3f6895e093db0162d36ee375831499d97d4f73284e8c16803e8346a16d82226e",
+    "target_model_sha256": "9eadf400a76b29d154bc023656d09d1096a8943ba625d62b5e54ba96fdff1ffc",
+    "source_optimizer_sha256": "60f7decf50ddf1798228bfc727e60ce53ca85a8371e6c66c6ec7842751b0d78f",
+    "target_optimizer_sha256": "df5e3643bb1d28faa845ceebe9953f6999219136aea2506327eaa77b1c2354b6",
+    "target_trainer_state_sha256": "afde419cb8647cf124ee99bcd98c70842dbaaab3b718255482242f1f73d72339",
+    "target_dataloader_sha256": "f39cccbb0d09b3532e4f8eafcb03b42848cbb8363c7ca06e389da239cfe8b819",
+    "source_gate_report_sha256": "dcac3ad092a736c5c58f9d3dc3f3cdfa6e8142fa6e820197950eac67d703cbcc"
+  },
+  "canonical_manifest_sha256": "bd77242d68ace1084e4734a57000a0d63a788586fe36f82a11d9c8d9a945ce48"
+}

@@ -7,9 +7,11 @@ project:
 
 provenance:
   training_data:
-    recipe_source: https://github.com/sail-sg/understand-r1-zero
-    recipe_commit: dfca49dd460ee7cc8e4a5a162c876a7fd6993b87
-    identity: MATH-12K converted to native verl parquet
+    artifact_source: https://github.com/thunlp/OPD.git
+    artifact_commit: 4532fd35ccfdde82adc918b265e4c964534e83d1
+    source_json_relative_path: datasets/test_data/MATH/train.json
+    source_json_sha256: ad41fe4ffc830efcdac9fc58b477d9d91a74d5c4c687e275a800af2fa58ae5b3
+    identity: MATH-12K native-verl parquet audited row-by-row against the pinned source JSON
     rows: 12000
     unique_prompts: 11998
     duplicate_prompt_groups: 2

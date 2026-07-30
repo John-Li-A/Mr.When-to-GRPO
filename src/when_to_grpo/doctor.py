@@ -31,6 +31,11 @@ REQUIRED_KEYS = (
     "evaluation.external_panels",
     "evaluation.primary_n",
     "evaluation.max_response_length",
+    "runtime.n_gpus_per_node",
+    "runtime.model_dtype",
+    "runtime.rollout_gpu_memory_utilization",
+    "runtime.actor_micro_batch_size_per_gpu",
+    "runtime.teacher_micro_batch_size_per_gpu",
 )
 
 
@@ -91,13 +96,23 @@ def inspect_config(config: Mapping[str, Any], *, check_paths: bool = False) -> d
     if str(_get(config, "training.opd_estimator")) == str(_get(config, "training.rl_estimator")):
         errors.append("OPD and RL estimators must differ")
 
+    if int(_get(config, "runtime.n_gpus_per_node")) < 1:
+        errors.append("runtime.n_gpus_per_node must be positive")
+    utilization = float(_get(config, "runtime.rollout_gpu_memory_utilization"))
+    if not 0 < utilization <= 1:
+        errors.append("runtime.rollout_gpu_memory_utilization must be in (0, 1]")
+    for key in ("runtime.actor_micro_batch_size_per_gpu", "runtime.teacher_micro_batch_size_per_gpu"):
+        if int(_get(config, key)) < 1:
+            errors.append(f"{key} must be positive")
+
     path_keys = ("student_model", "teacher_model", "train_data", "source_root", "verl_root")
     for key in path_keys:
         raw = config.get("paths", {}).get(key)
         if raw is None:
             continue
         if "CHANGE_ME" in str(raw):
-            warnings.append(f"unresolved path placeholder: paths.{key}")
+            message = f"unresolved path placeholder: paths.{key}"
+            (errors if check_paths else warnings).append(message)
         elif check_paths and not Path(str(raw)).exists():
             errors.append(f"path does not exist: paths.{key}={raw}")
 
@@ -109,12 +124,15 @@ def inspect_config(config: Mapping[str, Any], *, check_paths: bool = False) -> d
         errors.append("evaluation.external_panels must be unique")
     if int(config.get("evaluation", {}).get("primary_n", 0)) < 1:
         errors.append("evaluation.primary_n must be positive")
+    if float(config.get("evaluation", {}).get("equivalence_band", 0.0)) < 0:
+        errors.append("evaluation.equivalence_band must be non-negative")
     primary = str(_get(config, "evaluation.primary_panel"))
     if panels and primary not in panels:
         errors.append("evaluation.primary_panel must appear in evaluation.external_panels")
     for index, raw in enumerate(eval_paths):
         if "CHANGE_ME" in str(raw):
-            warnings.append(f"unresolved path placeholder: paths.external_eval[{index}]")
+            message = f"unresolved path placeholder: paths.external_eval[{index}]"
+            (errors if check_paths else warnings).append(message)
         elif check_paths and not Path(str(raw)).exists():
             errors.append(f"evaluation path does not exist: {raw}")
 

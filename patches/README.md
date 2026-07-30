@@ -8,10 +8,12 @@ These patches apply to `thunlp/OPD` commit
 2. `02_rollout_seed.patch` exposes the rollout seed already consumed by the
    vLLM path.
 3. `03_actor_selected_token_memory.patch` avoids the full-vocabulary
-   differentiable allocation on the selected-token path and supports an
-   optional chunked top-k diagnostic.
-4. `04_chunked_logprob_helper.patch` implements selected-token normalized
-   log-probabilities through chunked `logsumexp`.
+   differentiable allocation on the selected-token path. It retains a guarded
+   chunked top-k path from the audited runtime, but the reference protocol sets
+   `top_k=0` and does not report top-k signals.
+4. `04_chunked_logprob_helper.patch` supplies the guarded selected-token
+   normalization helper required by that patched source tree; it is dormant in
+   the reference protocol.
 5. `05_teacher_fused_alignment.patch` aligns fused teacher response scores,
    makes entropy opt-in, and fixes non-contiguous reshaping.
 

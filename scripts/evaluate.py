@@ -13,27 +13,14 @@ import torch
 import yaml
 from transformers import AutoTokenizer
 
-from when_to_grpo.core import normalize_prompt, sha256_file
-
-
-def protocol(config: dict, n: int) -> dict:
-    evaluation = config["evaluation"]
-    max_tokens = int(evaluation["max_response_length"])
-    if max_tokens != int(config["rollout"]["max_response_length"]):
-        raise ValueError("evaluation and training response caps must match")
-    return {
-        "n": int(n),
-        "temperature": float(evaluation["temperature"]),
-        "top_p": float(evaluation["top_p"]),
-        "top_k": int(evaluation["top_k"]),
-        "repetition_penalty": float(evaluation["repetition_penalty"]),
-        "max_tokens": max_tokens,
-        "max_prompt_length": int(config["rollout"]["max_prompt_length"]),
-        "max_model_len": int(config["rollout"]["max_prompt_length"]) + max_tokens,
-        "seed": int(evaluation["seed"]),
-        "enable_thinking": bool(config["rollout"]["enable_thinking"]),
-        "verifier": str(config.get("verifier", {}).get("label", "configured-verifier")),
-    }
+from when_to_grpo.core import (
+    build_evaluation_protocol,
+    canonical_json,
+    normalize_prompt,
+    sha256_bytes,
+    sha256_file,
+    tree_identity,
+)
 
 
 def load_panel(path: Path, config: dict) -> pd.DataFrame:
@@ -75,6 +62,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--model-path", type=Path, required=True)
+    parser.add_argument("--model-id", required=True)
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--panel", required=True)
     parser.add_argument("--n", type=int, required=True)
@@ -82,35 +70,48 @@ def main() -> None:
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    if not args.model_path.is_dir():
+        raise FileNotFoundError(args.model_path)
     frame = load_panel(args.dataset, config)
-    tokenizer_path = args.model_path if args.model_path.is_dir() else Path(config["paths"]["student_model"])
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=True)
     rendered, prompt_lengths = render_prompts(frame, tokenizer, config)
-    locked = protocol(config, args.n)
+    locked = build_evaluation_protocol(config, args.n)
+    protocol_sha256 = sha256_bytes(canonical_json(locked).encode("utf-8"))
+    model_identity = tree_identity(args.model_path)
     manifest = {
         **locked,
+        "evaluation_protocol_sha256": protocol_sha256,
         "panel": args.panel,
         "dataset": str(args.dataset),
         "dataset_sha256": sha256_file(args.dataset),
         "rows": len(frame),
+        "model_id": args.model_id,
         "model_path": str(args.model_path),
+        "model_identity_sha256": model_identity["sha256"],
         "max_rendered_prompt_tokens": max(prompt_lengths),
         "metric": f"avg_at_{args.n}",
     }
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "model_identity.json").write_text(
+        json.dumps(model_identity, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     (args.output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     if not args.execute:
         print(json.dumps(manifest, indent=2))
         return
     if os.environ.get("HANDOFF_GPU_AUTHORIZED") != "1":
         raise SystemExit("GPU execution requires HANDOFF_GPU_AUTHORIZED=1")
-    if not args.model_path.is_dir():
-        raise FileNotFoundError(args.model_path)
-
     from vllm import LLM, SamplingParams
     from vllm.distributed.parallel_state import destroy_distributed_environment, destroy_model_parallel
     verifier = config.get("verifier", {})
     verifier_module = importlib.import_module(str(verifier.get("eval_module", "verl.utils.reward_score.ttrl_math")))
+    imported_verifier_path = Path(verifier_module.__file__).resolve()
+    imported_verifier_hash = sha256_file(imported_verifier_path)
+    if imported_verifier_hash != locked["verifier"]["source_sha256"]:
+        raise ValueError(
+            "imported verifier does not match the configured verifier source: "
+            f"{imported_verifier_path}"
+        )
     compute_score = getattr(verifier_module, str(verifier.get("eval_function", "compute_score")))
 
     stop_ids = []

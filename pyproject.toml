@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "when-to-grpo"
-version = "0.2.0"
+version = "0.2.1"
 description = "A paired-intervention toolkit for OPD-to-GRPO switch-point discovery"
 readme = "README.md"
 requires-python = ">=3.10"

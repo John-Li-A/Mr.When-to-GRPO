@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from .core import branch_label
+
 
 ENDPOINT_FIELDS = (
     "avg_at_n",
@@ -18,6 +20,23 @@ ENDPOINT_FIELDS = (
     "mean_tokens",
     "cap_hit_rate",
     "generation_seconds",
+)
+
+MATCHED_EVALUATION_FIELDS = (
+    "dataset_sha256",
+    "rows",
+    "n",
+    "temperature",
+    "top_p",
+    "top_k",
+    "repetition_penalty",
+    "max_tokens",
+    "max_prompt_length",
+    "max_model_len",
+    "seed",
+    "enable_thinking",
+    "verifier",
+    "evaluation_protocol_sha256",
 )
 
 
@@ -63,11 +82,60 @@ def _load_summary(spec: Mapping[str, Any], root: Path) -> dict:
     return _load_json(path)
 
 
-def _validate_pair(left: Mapping[str, Any], right: Mapping[str, Any], panel: str) -> None:
-    for name, summary in (("opd", left), ("grpo", right)):
-        if summary.get("panel") != panel:
-            raise ValueError(f"{name} summary panel does not match {panel}")
-    for key in ("dataset_sha256", "rows", "n", "max_tokens", "seed"):
+def _validate_summary(summary: Mapping[str, Any], spec: Mapping[str, Any], panel: str, arm: str) -> None:
+    if summary.get("panel") != panel:
+        raise ValueError(f"{arm} summary panel does not match {panel}")
+    expected_model_id = str(spec["model_id"])
+    if summary.get("model_id") != expected_model_id:
+        raise ValueError(
+            f"{arm} summary model_id does not match plan: "
+            f"{summary.get('model_id')!r} != {expected_model_id!r}"
+        )
+    if "model_path" in spec and str(summary.get("model_path")) != str(spec["model_path"]):
+        raise ValueError(
+            f"{arm} summary model_path does not match plan: "
+            f"{summary.get('model_path')!r} != {spec['model_path']!r}"
+        )
+    if "model_identity_sha256" in spec and summary.get("model_identity_sha256") != spec.get(
+        "model_identity_sha256"
+    ):
+        raise ValueError(f"{arm} summary model identity does not match plan")
+    if "dataset" in spec and str(summary.get("dataset")) != str(spec["dataset"]):
+        raise ValueError(f"{arm} summary dataset path does not match plan")
+    if "dataset_sha256" in spec and summary.get("dataset_sha256") != spec["dataset_sha256"]:
+        raise ValueError(f"{arm} summary dataset identity does not match plan")
+    expected_protocol = spec.get("evaluation_protocol")
+    if expected_protocol is not None:
+        if not isinstance(expected_protocol, Mapping):
+            raise TypeError(f"{arm} evaluation_protocol in plan must be an object")
+        for field, expected in expected_protocol.items():
+            if summary.get(field) != expected:
+                raise ValueError(f"{arm} summary {field} does not match plan")
+    expected_protocol_hash = spec.get("evaluation_protocol_sha256")
+    if expected_protocol_hash is not None and summary.get(
+        "evaluation_protocol_sha256"
+    ) != expected_protocol_hash:
+        raise ValueError(f"{arm} summary evaluation protocol identity does not match plan")
+    for field in ("model_identity_sha256", "evaluation_protocol_sha256"):
+        value = summary.get(field)
+        if not isinstance(value, str) or len(value) != 64:
+            raise ValueError(f"{arm} summary has no valid {field}")
+        try:
+            int(value, 16)
+        except ValueError as error:
+            raise ValueError(f"{arm} summary has no valid {field}") from error
+
+
+def _validate_pair(
+    left: Mapping[str, Any],
+    right: Mapping[str, Any],
+    left_spec: Mapping[str, Any],
+    right_spec: Mapping[str, Any],
+    panel: str,
+) -> None:
+    for name, summary, spec in (("opd", left, left_spec), ("grpo", right, right_spec)):
+        _validate_summary(summary, spec, panel, name)
+    for key in MATCHED_EVALUATION_FIELDS:
         if left.get(key) != right.get(key):
             raise ValueError(f"paired endpoint mismatch for {key}: {left.get(key)!r} != {right.get(key)!r}")
 
@@ -79,6 +147,7 @@ def build_surface(
     panel: str | None = None,
     metric: str = "avg_at_n",
     signals: Mapping[str, Any] | None = None,
+    equivalence_band: float | None = None,
 ) -> list[dict[str, Any]]:
     panel = panel or str(plan.get("primary_panel", ""))
     if not panel:
@@ -87,6 +156,13 @@ def build_surface(
     comparisons = plan.get("primary_comparisons", [])
     if not comparisons:
         raise ValueError("evaluation plan contains no primary comparisons")
+    equivalence_band = (
+        float(plan.get("equivalence_band", 0.0))
+        if equivalence_band is None
+        else float(equivalence_band)
+    )
+    if equivalence_band < 0:
+        raise ValueError("equivalence_band must be non-negative")
 
     rows: list[dict[str, Any]] = []
     for comparison in comparisons:
@@ -95,9 +171,11 @@ def build_surface(
         grpo_id = str(comparison["rl_model_id"])
         if opd_id not in evaluations or grpo_id not in evaluations:
             raise ValueError(f"missing paired evaluation specs at branch point {checkpoint}")
-        opd = _load_summary(evaluations[opd_id], root)
-        grpo = _load_summary(evaluations[grpo_id], root)
-        _validate_pair(opd, grpo, panel)
+        opd_spec = evaluations[opd_id]
+        grpo_spec = evaluations[grpo_id]
+        opd = _load_summary(opd_spec, root)
+        grpo = _load_summary(grpo_spec, root)
+        _validate_pair(opd, grpo, opd_spec, grpo_spec, panel)
         if metric not in opd or metric not in grpo:
             raise KeyError(f"endpoint metric {metric!r} is absent at branch point {checkpoint}")
 
@@ -112,6 +190,13 @@ def build_surface(
             "opd_endpoint": float(opd[metric]),
             "grpo_endpoint": float(grpo[metric]),
             "grpo_minus_opd": float(grpo[metric]) - float(opd[metric]),
+            "equivalence_band": equivalence_band,
+            "preferred_arm": branch_label(
+                float(grpo[metric]), float(opd[metric]), equivalence_band
+            ),
+            "opd_model_identity_sha256": opd["model_identity_sha256"],
+            "grpo_model_identity_sha256": grpo["model_identity_sha256"],
+            "evaluation_protocol_sha256": opd["evaluation_protocol_sha256"],
         }
         for field in ENDPOINT_FIELDS:
             if field in opd and field in grpo:
@@ -127,11 +212,23 @@ def build_surface(
     return sorted(rows, key=lambda item: item["branch_point"])
 
 
-def write_surface(rows: list[dict[str, Any]], output_dir: Path, panel: str, metric: str) -> dict[str, str]:
+def write_surface(
+    rows: list[dict[str, Any]],
+    output_dir: Path,
+    panel: str,
+    metric: str,
+    equivalence_band: float = 0.0,
+) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "handoff_surface.json"
     csv_path = output_dir / "handoff_surface.csv"
-    payload = {"schema_version": 1, "panel": panel, "metric": metric, "rows": rows}
+    payload = {
+        "schema_version": 2,
+        "panel": panel,
+        "metric": metric,
+        "equivalence_band": equivalence_band,
+        "rows": rows,
+    }
     json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     fieldnames = list(dict.fromkeys(key for row in rows for key in row))
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
@@ -147,6 +244,7 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--panel")
     parser.add_argument("--metric", default="avg_at_n")
+    parser.add_argument("--equivalence-band", type=float)
     parser.add_argument("--signals", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -154,8 +252,20 @@ def main() -> None:
     plan = _load_json(args.plan)
     signals = _load_json(args.signals) if args.signals else None
     panel = args.panel or str(plan.get("primary_panel", ""))
-    rows = build_surface(plan, root=args.root, panel=panel, metric=args.metric, signals=signals)
-    paths = write_surface(rows, args.output_dir, panel, args.metric)
+    band = (
+        float(plan.get("equivalence_band", 0.0))
+        if args.equivalence_band is None
+        else args.equivalence_band
+    )
+    rows = build_surface(
+        plan,
+        root=args.root,
+        panel=panel,
+        metric=args.metric,
+        signals=signals,
+        equivalence_band=band,
+    )
+    paths = write_surface(rows, args.output_dir, panel, args.metric, band)
     print(json.dumps({"comparisons": len(rows), **paths}, indent=2))
 
 
