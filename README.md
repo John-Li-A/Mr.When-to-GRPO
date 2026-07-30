@@ -27,7 +27,9 @@ candidate checkpoint S_t
 paired label at t:  Delta(t) = E_GRPO - E_OPD
 ```
 
-Sweeping several checkpoints produces a handoff surface:
+For example, sweeping candidate checkpoints `[0, 20, 40]` produces a handoff
+surface like the one below. Candidate checkpoints and the branch horizon are
+fully configurable.
 
 | switch step | mixed-group rate | OPD score | cap-hit rate | OPD endpoint | GRPO endpoint | GRPO − OPD |
 |---:|---:|---:|---:|---:|---:|---:|
