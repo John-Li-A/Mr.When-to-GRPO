@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "primary_panel": "DEMO",
+  "primary_metric": "avg_at_n",
+  "branch_horizon": 10,
+  "evaluation_specs": [
+    {"model_id": "opd_t10", "panel": "DEMO", "output_dir": "data/examples/endpoints/opd_t10"},
+    {"model_id": "grpo_t10", "panel": "DEMO", "output_dir": "data/examples/endpoints/grpo_t10"},
+    {"model_id": "opd_t30", "panel": "DEMO", "output_dir": "data/examples/endpoints/opd_t30"},
+    {"model_id": "grpo_t30", "panel": "DEMO", "output_dir": "data/examples/endpoints/grpo_t30"}
+  ],
+  "primary_comparisons": [
+    {"branch_point": 0, "horizon": 10, "target_step": 10, "opd_model_id": "opd_t10", "rl_model_id": "grpo_t10"},
+    {"branch_point": 20, "horizon": 10, "target_step": 30, "opd_model_id": "opd_t30", "rl_model_id": "grpo_t30"}
+  ]
+}

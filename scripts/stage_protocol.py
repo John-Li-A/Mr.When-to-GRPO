@@ -131,7 +131,7 @@ def main() -> None:
     output = Path(config["project"]["output_dir"])
     formal_specs = json.loads((output / "run_specs.json").read_text(encoding="utf-8"))
     specs = build_execution_specs(config, formal_specs)
-    path = output / "execution_specs_v5.json"
+    path = output / "execution_specs.json"
     path.write_text(json.dumps(specs, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({"executions": [item["execution_id"] for item in specs], "path": str(path)}, indent=2))
 

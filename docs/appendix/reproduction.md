@@ -43,6 +43,8 @@ python scripts/compose_config.py \
   configs/gates/rtx_pro_6000_96gb.yaml \
   configs/eval/math.yaml \
   --output configs/experiment.yaml
+
+when2grpo-doctor --config configs/experiment.yaml --check-paths
 ```
 
 `configs/experiment.yaml` is ignored because it may contain local paths.
@@ -91,7 +93,7 @@ when2grpo-audit \
   --response-cap 7168 \
   --output artifacts/RUN_ID.signal.json
 
-python scripts/evaluate_math.py \
+python scripts/evaluate.py \
   --config configs/experiment.yaml \
   --model-path merged/MODEL_ID \
   --dataset CHANGE_ME/data/MATH-500/test.parquet \
@@ -103,3 +105,27 @@ python scripts/evaluate_math.py \
 
 Endpoint claims require the paired OPD and RL summaries, not training-batch
 accuracy. Preserve the generated manifests and hashes with every result.
+
+## 7. Assemble the handoff surface
+
+Plan endpoint evaluations and run the generated commands for every registered
+pair:
+
+```bash
+python scripts/plan_evaluation.py --config configs/experiment.yaml
+```
+
+After each evaluation directory contains `summary.json`, combine the matched
+endpoints and optional pre-branch signals:
+
+```bash
+when2grpo-surface \
+  --plan artifacts/handoff_math/evaluation_plan.json \
+  --signals artifacts/handoff_math/checkpoint_signals.json \
+  --root . \
+  --output-dir results/my-sweep
+```
+
+Omit `--signals` when only the paired endpoint surface is required. The command
+refuses to join summaries whose panel, dataset hash, row count, sample count,
+response cap, or seed differ.

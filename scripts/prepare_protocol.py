@@ -37,44 +37,46 @@ def write_json(path: Path, value: object) -> None:
 
 def validate_training_data(frame: pd.DataFrame, train_path: Path, config: dict) -> dict:
     data = config["data"]
-    expected_rows = int(data["expected_train_rows"])
-    if len(frame) != expected_rows:
+    expected_rows = data.get("expected_train_rows")
+    if expected_rows is not None and len(frame) != int(expected_rows):
         raise ValueError(f"training row count drift: {len(frame)} != {expected_rows}")
     actual_hash = sha256_file(train_path)
-    expected_hash = str(data["expected_train_sha256"])
-    if actual_hash != expected_hash:
+    expected_hash = data.get("expected_train_sha256")
+    if expected_hash is not None and actual_hash != str(expected_hash):
         raise ValueError(f"training data hash drift: {actual_hash} != {expected_hash}")
-    required_columns = set(data["required_columns"])
+    required_columns = set(data.get("required_columns", ["prompt", "reward_model"]))
     missing = sorted(required_columns - set(frame.columns))
     if missing:
         raise ValueError(f"training data is missing required columns: {missing}")
 
-    provenance = config["provenance"]["training_data"]
-    expected_unique = int(provenance["unique_prompts"])
+    provenance = config.get("provenance", {}).get("training_data", {})
     identity_counts = Counter(problem_id(record) for record in frame.to_dict(orient="records"))
     actual_unique = len(identity_counts)
-    if actual_unique != expected_unique:
+    expected_unique = provenance.get("unique_prompts")
+    if expected_unique is not None and actual_unique != int(expected_unique):
         raise ValueError(f"unique prompt count drift: {actual_unique} != {expected_unique}")
-    expected_duplicate_groups = int(provenance["duplicate_prompt_groups"])
     actual_duplicate_groups = sum(count > 1 for count in identity_counts.values())
-    if actual_duplicate_groups != expected_duplicate_groups:
+    expected_duplicate_groups = provenance.get("duplicate_prompt_groups")
+    if expected_duplicate_groups is not None and actual_duplicate_groups != int(expected_duplicate_groups):
         raise ValueError(
             f"duplicate prompt group drift: {actual_duplicate_groups} != {expected_duplicate_groups}"
         )
     actual_duplicate_rows_removed = len(frame) - actual_unique
-    expected_duplicate_rows_removed = int(provenance["exact_duplicate_rows_removed"])
-    if actual_duplicate_rows_removed != expected_duplicate_rows_removed:
+    expected_duplicate_rows_removed = provenance.get("exact_duplicate_rows_removed")
+    if expected_duplicate_rows_removed is not None and actual_duplicate_rows_removed != int(expected_duplicate_rows_removed):
         raise ValueError(
             "duplicate row count drift: "
             f"{actual_duplicate_rows_removed} != {expected_duplicate_rows_removed}"
         )
-    expected_levels = {
-        int(level): int(count)
-        for level, count in config["provenance"]["training_data"]["level_counts"].items()
-    }
-    actual_levels = {int(level): int(count) for level, count in frame["level"].value_counts().to_dict().items()}
-    if actual_levels != expected_levels:
-        raise ValueError(f"MATH level distribution drift: {actual_levels} != {expected_levels}")
+    actual_levels = {}
+    expected_levels_raw = provenance.get("level_counts")
+    if expected_levels_raw is not None:
+        if "level" not in frame.columns:
+            raise ValueError("level_counts were pinned but the training data has no level column")
+        expected_levels = {int(level): int(count) for level, count in expected_levels_raw.items()}
+        actual_levels = {int(level): int(count) for level, count in frame["level"].value_counts().to_dict().items()}
+        if actual_levels != expected_levels:
+            raise ValueError(f"level distribution drift: {actual_levels} != {expected_levels}")
 
     required = tuple(data.get("required_prompt_substrings", ()))
     forbidden = tuple(data.get("forbidden_prompt_substrings", ()))
@@ -103,7 +105,7 @@ def validate_training_data(frame: pd.DataFrame, train_path: Path, config: dict) 
         "duplicate_prompt_groups": actual_duplicate_groups,
         "exact_duplicate_rows_removed": actual_duplicate_rows_removed,
         "level_counts": actual_levels,
-        "prompt_contract": "one-raw-user-message-with-single-reasoning-and-boxed-instructions",
+        "prompt_contract": data.get("prompt_contract_label", "one-raw-user-message"),
     }
 
 

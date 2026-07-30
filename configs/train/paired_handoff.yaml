@@ -59,6 +59,7 @@ data:
   fail_on_external_eval_overlap: true
   required_prompt_substrings: ["Please reason step by step", "\\boxed{}"]
   forbidden_prompt_substrings: ["<|im_start|>", "<|im_end|>"]
+  prompt_contract_label: one-raw-user-message-with-reasoning-and-boxed-instructions
   prompt_batch_size: 64
   dataloader_num_workers: 0
   splits:
@@ -104,4 +105,3 @@ training:
   branch_horizon: 10
   validation_updates: null
   monitor_hold_windows: 2
-

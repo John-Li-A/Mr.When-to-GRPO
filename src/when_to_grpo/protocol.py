@@ -32,8 +32,8 @@ def run_specs(config: dict) -> list[dict]:
     guard_estimator(training["rl_estimator"], forbidden)
     if config["rollout"]["max_response_length"] <= 0:
         raise ValueError("training response cap must be positive")
-    if config["rollout"]["n"] < 4:
-        raise ValueError("formal GRPO protocol requires n >= 4")
+    if config["rollout"]["n"] < 2:
+        raise ValueError("group-relative RL requires n >= 2")
     trajectories_per_update = config["data"]["prompt_batch_size"] * config["rollout"]["n"]
     mini_batch_size = int(training.get("ppo_mini_batch_size", config["data"]["prompt_batch_size"]))
     if trajectories_per_update % mini_batch_size:
@@ -87,7 +87,8 @@ def run_specs(config: dict) -> list[dict]:
     counterfactual_mode = training.get("counterfactual_mode")
     if counterfactual_mode != "fork_resumed_opd":
         raise ValueError(
-            "v5 requires fork_resumed_opd so resumed OPD/RL arms share process-reset semantics"
+            "the paired protocol requires fork_resumed_opd so resumed OPD/GRPO arms "
+            "share process-reset semantics"
         )
     reuse_fresh_t0 = bool(training.get("reuse_fresh_trunk_t0", False))
     for checkpoint in training["branch_points"]:

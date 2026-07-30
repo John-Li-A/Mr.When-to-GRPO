@@ -1,64 +1,59 @@
 # Mr. When-to-GRPO
 
-**A paired-branch recipe and training launcher for testing when OPD should
-hand off to GRPO.**
+**A paired-intervention toolkit for OPD→GRPO switch-point discovery.**
 
-On-policy distillation (OPD) gives a student a dense teacher signal. Verifier
-RL gives it a sparse external outcome signal. This project asks a narrower
-question than “which objective is better?”:
+Recent OPD and hybrid post-training work increasingly relies on signals such as
+verifier contrast, teacher–student support gap, entropy, or fixed decay
+schedules to decide how long a student should keep following a teacher. These
+signals are difficult to compare when the dataset, prompt stream, response cap,
+training dose, or endpoint evaluation changes at the same time.
 
-> At a given post-training checkpoint, which observable signals predict that
-> another fixed budget of verifier RL will improve held-out performance more
-> than the same budget of continued OPD?
+Mr. When-to-GRPO provides the missing test bench. Given a set of candidate
+checkpoints, it forks each checkpoint into two matched futures—continued OPD and
+switched GRPO—and measures which one yields greater held-out gain.
 
-The unit of evidence is a paired intervention. From the same checkpoint, OPD
-and native Dr.GRPO consume the same future prompt window for the same number of
-updates. Their held-out gain is then compared. Training statistics are treated
-as candidate predictors, not as proof of a handoff rule.
+It does not prescribe a universal handoff rule. It makes handoff hypotheses
+testable.
 
-## Status
-
-This is a work in progress. The data audit, deterministic prompt queue,
-checkpoint identity checks, native OPD-to-RL resume path, long-context memory
-recipe, and rollout signal audit have been exercised. Fresh 10-update OPD and
-RL pilot arms also completed. Paired endpoint evaluation and the later
-checkpoint interventions are not complete, so this repository does **not**
-claim a universal handoff point.
-
-Verified observations so far:
-
-| Check | Observation |
-|---|---|
-| MATH-500 starting point | Qwen3-1.7B-Base avg@4 25.50%; Qwen3-4B-GRPO teacher avg@4 84.30% |
-| Matched 64-problem signal panel | 79/256 correct trajectories; 73.44% mixed rollout groups |
-| Early DAPO batches | 185/192 groups all-fail; only 3.65% supplied native GRPO task contrast |
-| Single-card OPD resource gate | B=64, n=4, cap=7168 completed for three updates; 47,138 MiB one-second NVML peak |
-| Formal OPD pilot | 10 updates, 640 prompts, 2,560 trajectories; exact queue audit passed |
-
-These numbers establish that task distribution changes the availability of an
-RL signal, and that the intended training shape is feasible. They do not yet
-establish when switching objectives is optimal.
-
-## Protocol in one diagram
+## What it produces
 
 ```text
-student checkpoint S_t
+candidate checkpoint S_t
         |
-        +-- continue native sampled-token OPD for H updates -- evaluate E_OPD
+        +-- continue sampled-token OPD for H updates -- evaluate E_OPD
         |
-        +-- switch to native Dr.GRPO for H updates ---------- evaluate E_RL
+        +-- switch to Dr.GRPO for H updates ----------- evaluate E_GRPO
 
-local future gain label: E_RL - E_OPD
-candidate signals at S_t: verifier contrast, OPD score, response length and
-truncation, teacher/student support, and OPD/RL gradient relation
+paired label at t:  Delta(t) = E_GRPO - E_OPD
 ```
 
-The primary comparison uses checkpoint state, prompt order, rollout settings,
-response cap, update count, and evaluation panel as controlled variables. See
-[the research question](docs/01_research_question.md) and
-[the protocol notes](docs/02_recipe_audit.md).
+Sweeping several checkpoints produces a handoff surface:
 
-## CPU quick start
+| switch step | mixed-group rate | OPD score | cap-hit rate | OPD endpoint | GRPO endpoint | GRPO − OPD |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | … | … | … | … | … | … |
+| 20 | … | … | … | … | … | … |
+| 40 | … | … | … | … | … | … |
+
+Candidate signals are measured before the branch. Endpoint gain is measured on
+the same held-out panel after an equal update horizon. The resulting table can
+be used to inspect a fixed schedule, calibrate a proposed signal, or compare
+several handoff heuristics.
+
+## Included tools
+
+- `when2grpo-doctor`: validate branch geometry, response caps, panels, and paths
+- `when2grpo-plan`: materialize matched OPD/GRPO branches over candidate points
+- `when2grpo-launch`: emit or execute the pinned verl command for one branch
+- `when2grpo-audit`: recover verifier contrast, truncation, format, and OPD signals from rollouts
+- `when2grpo-surface`: join paired endpoint summaries and optional signals into CSV/JSON
+
+The harness also locks prompt order, rollout seeds, checkpoint identity,
+dataloader continuation, model/tokenizer provenance, and train/eval leakage
+checks. Those controls are the difference between a switch-point plot and a
+paired intervention.
+
+## Quick start: inspect the CPU-only surface demo
 
 ```bash
 python -m venv .venv
@@ -70,12 +65,24 @@ when2grpo-audit \
   --rollout-dir data/examples \
   --n 4 \
   --response-cap 32
+
+when2grpo-surface \
+  --plan data/examples/surface_plan.json \
+  --signals data/examples/signals.json \
+  --root . \
+  --output-dir /tmp/when2grpo-surface
 ```
 
-To prepare the full experiment, install `.[data]`, edit the path placeholders
-in the four configuration fragments, and compose them:
+No GPU, model weights, or external datasets are needed for this demo.
+
+## Run a handoff sweep
+
+The repository ships a Qwen3 Math reference recipe as four composable fragments.
+Edit the `CHANGE_ME` paths, then compose and inspect the experiment:
 
 ```bash
+pip install -e ".[data,test]"
+
 python scripts/compose_config.py \
   configs/models/qwen3_math.yaml \
   configs/train/paired_handoff.yaml \
@@ -83,26 +90,76 @@ python scripts/compose_config.py \
   configs/eval/math.yaml \
   --output configs/experiment.yaml
 
+when2grpo-doctor --config configs/experiment.yaml --check-paths
 python scripts/prepare_protocol.py --config configs/experiment.yaml
 when2grpo-plan --config configs/experiment.yaml --dry-run
 python scripts/stage_protocol.py --config configs/experiment.yaml
+python scripts/plan_evaluation.py --config configs/experiment.yaml
 ```
 
-GPU execution is deliberately guarded by `HANDOFF_GPU_AUTHORIZED=1`. The
-repository pins the upstream OPD commit and keeps local verl changes as small
-patches rather than vendoring the training framework. Detailed setup is in
-[reproduction](docs/appendix/reproduction.md).
+Inspect a generated command before authorizing GPU execution:
+
+```bash
+when2grpo-launch \
+  --config configs/experiment.yaml \
+  --run-id paired_handoff_v1_discovery_trunk_opd_t0_t10 \
+  --dry-run
+
+HANDOFF_GPU_AUTHORIZED=1 when2grpo-launch \
+  --config configs/experiment.yaml \
+  --run-id paired_handoff_v1_discovery_trunk_opd_t0_t10
+```
+
+After the planned endpoint evaluations write their `summary.json` files:
+
+```bash
+when2grpo-surface \
+  --plan artifacts/handoff_math/evaluation_plan.json \
+  --signals artifacts/handoff_math/checkpoint_signals.json \
+  --root . \
+  --output-dir results/my-sweep
+```
+
+`--signals` is optional. Its JSON object maps each branch step to any nested
+numeric signal dictionary; scalar fields are flattened into the surface table.
+
+## Built-in signal families
+
+- **Verifier availability:** all-fail, mixed, all-correct, and zero-GRPO-contrast group rates
+- **Teacher pressure:** sampled-token OPD score and length-normalized score
+- **Generation health:** response length, cap-hit rate, and output-format rate
+- **Support diagnostics:** student/teacher top-k overlap and teacher mass outside student support
+- **Objective relation:** OPD/GRPO gradient norms and cosine on frozen trajectories
+
+Users can add candidate signals without changing the paired branch protocol.
+The tool treats them as predictors to be calibrated against future relative
+gain, not as handoff rules by definition.
+
+## Reference recipe
+
+The included recipe uses Qwen3-1.7B-Base as student, a Qwen3-4B-GRPO teacher,
+MATH-12K training prompts, and a pinned THUNLP OPD/verl commit. It has exercised:
+
+- exact `B=64`, `n=4`, response-cap-7168 sampled-token OPD on one 96GB GPU;
+- complete checkpoint continuation from OPD into native Dr.GRPO;
+- deterministic prompt queues and exact rollout-to-schedule audits;
+- matched student/teacher evaluation and rollout signal recovery.
+
+These artifacts validate the harness and provide a reproducible starting point.
+They are not presented as a universal OPD→GRPO boundary. See
+[the reference recipe](docs/04_reference_recipe.md) and
+[scope and non-goals](docs/05_scope_and_non_goals.md).
 
 ## Repository map
 
-- `src/when_to_grpo/`: split, queue, branch, signal, and command invariants
-- `scripts/`: data preparation, staged execution, checkpoint merge, evaluation
-- `configs/`: model, training, resource, and evaluation fragments
-- `patches/`: minimal diffs against the pinned upstream OPD repository
-- `data/`: acquisition instructions, public manifest, and a synthetic schema example
-- `results/`: checked observations only; no raw trajectories or checkpoints
-- `docs/`: motivation, protocol evolution, current findings, and limitations
+- `src/when_to_grpo/`: branch planning, config checks, rollout audits, and surface assembly
+- `scripts/`: data preparation, staged execution, checkpoint merge, and evaluation
+- `configs/`: model, training, hardware, and evaluation fragments
+- `patches/`: minimal diffs against the pinned OPD/verl source
+- `data/examples/`: synthetic CPU-only examples of the rollout and surface schemas
+- `results/`: checked reference observations; no raw trajectories or checkpoints
+- `docs/`: causal question, recipe audit, design lessons, reference recipe, and scope
 
-The full experimental working directory is intentionally not published. It
-contains checkpoints, raw generations, machine paths, and retired launchers
-that would obscure rather than improve reproducibility.
+The full experiment workspace is intentionally excluded. Model weights,
+checkpoints, raw generations, local machine paths, and retired launchers do not
+belong in a reusable switch-point tool.

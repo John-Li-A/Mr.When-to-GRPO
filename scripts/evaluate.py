@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import importlib
 import json
 import os
 import time
@@ -31,11 +32,11 @@ def protocol(config: dict, n: int) -> dict:
         "max_model_len": int(config["rollout"]["max_prompt_length"]) + max_tokens,
         "seed": int(evaluation["seed"]),
         "enable_thinking": bool(config["rollout"]["enable_thinking"]),
-        "verifier": "locked-ttrl-math-rule-verifier",
+        "verifier": str(config.get("verifier", {}).get("label", "configured-verifier")),
     }
 
 
-def load_panel(path: Path) -> pd.DataFrame:
+def load_panel(path: Path, config: dict) -> pd.DataFrame:
     frame = pd.read_parquet(path)
     required = {"prompt", "reward_model"}
     missing = sorted(required - set(frame.columns))
@@ -45,8 +46,10 @@ def load_panel(path: Path) -> pd.DataFrame:
         messages = normalize_prompt(prompt)
         if len(messages) != 1 or messages[0]["role"] != "user":
             raise ValueError(f"eval row {index} is not one raw user message")
-        if messages[0]["content"].count("\\boxed{}") != 1:
-            raise ValueError(f"eval row {index} does not contain exactly one boxed instruction")
+        content = messages[0]["content"]
+        for token in config.get("evaluation", {}).get("required_prompt_substrings", []):
+            if content.count(str(token)) != 1:
+                raise ValueError(f"eval row {index} must contain exactly one {token!r}")
     return frame
 
 
@@ -79,7 +82,7 @@ def main() -> None:
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
-    frame = load_panel(args.dataset)
+    frame = load_panel(args.dataset, config)
     tokenizer_path = args.model_path if args.model_path.is_dir() else Path(config["paths"]["student_model"])
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, local_files_only=True)
     rendered, prompt_lengths = render_prompts(frame, tokenizer, config)
@@ -106,7 +109,9 @@ def main() -> None:
 
     from vllm import LLM, SamplingParams
     from vllm.distributed.parallel_state import destroy_distributed_environment, destroy_model_parallel
-    from verl.utils.reward_score.ttrl_math import compute_score
+    verifier = config.get("verifier", {})
+    verifier_module = importlib.import_module(str(verifier.get("eval_module", "verl.utils.reward_score.ttrl_math")))
+    compute_score = getattr(verifier_module, str(verifier.get("eval_function", "compute_score")))
 
     stop_ids = []
     for token in ("<|im_end|>", "<|endoftext|>"):
@@ -146,8 +151,14 @@ def main() -> None:
         if len(request.outputs) != locked["n"]:
             raise ValueError("vLLM returned the wrong number of samples")
         for sample_index, sample in enumerate(request.outputs):
-            score = compute_score(sample.text, truth)
-            scores.append(float(score["score"]))
+            raw_score = compute_score(sample.text, truth)
+            if isinstance(raw_score, dict):
+                score = raw_score
+                task_score = float(score[verifier.get("score_field", "score")])
+            else:
+                task_score = float(raw_score)
+                score = {"score": task_score}
+            scores.append(task_score)
             records.append(
                 {
                     "id": row.get("id"),
@@ -174,10 +185,12 @@ def main() -> None:
         "all_fail_rate": sum(not any(group) for group in prompt_scores) / len(prompt_scores),
         "all_correct_rate": sum(all(group) for group in prompt_scores) / len(prompt_scores),
         "nondegenerate_group_rate": sum(any(group) and not all(group) for group in prompt_scores) / len(prompt_scores),
-        "format_rate": sum(item["score"]["format_score"] > 0 for item in records) / len(records),
         "mean_tokens": sum(token_counts) / len(token_counts),
         "cap_hit_rate": sum(count >= locked["max_tokens"] for count in token_counts) / len(token_counts),
     }
+    format_field = verifier.get("format_field", "format_score")
+    if all(format_field in item["score"] for item in records):
+        summary["format_rate"] = sum(item["score"][format_field] > 0 for item in records) / len(records)
     (args.output_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2))
     del engine

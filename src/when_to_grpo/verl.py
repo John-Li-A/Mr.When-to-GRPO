@@ -35,6 +35,7 @@ def build_argv(config: dict, spec: dict) -> list[str]:
     )
     rollout = config["rollout"]
     runtime = config["runtime_provisional"]
+    verifier = config.get("verifier", {})
     output = Path(config["project"]["output_dir"])
     required_model_len = rollout["max_prompt_length"] + rollout["max_response_length"]
     max_model_len = int(runtime.get("max_model_len", required_model_len))
@@ -157,8 +158,9 @@ def build_argv(config: dict, spec: dict) -> list[str]:
         f"reward_model.micro_batch_size_per_gpu={runtime['teacher_micro_batch_size_per_gpu']}",
         f"reward_model.forward_max_token_len_per_gpu={teacher_max_token_len}",
         f"reward_model.compute_entropy={boolean(runtime['teacher_compute_entropy'])}",
-        f"custom_reward_function.path={config['paths']['verl_root']}/verl/utils/reward_score/ttrl_math/__init__.py",
-        "custom_reward_function.name=reward_func",
+        "custom_reward_function.path="
+        f"{Path(config['paths']['verl_root']) / verifier.get('train_relative_path', 'verl/utils/reward_score/ttrl_math/__init__.py')}",
+        f"custom_reward_function.name={verifier.get('train_function', 'reward_func')}",
         "trainer.val_before_train=False",
         "trainer.balance_batch=False",
         "trainer.logger=[\"console\"]",
@@ -193,7 +195,7 @@ def main() -> None:
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     output = Path(config["project"]["output_dir"])
-    execution_specs = output / "execution_specs_v5.json"
+    execution_specs = output / "execution_specs.json"
     specs = json.loads(
         (execution_specs if execution_specs.is_file() else output / "run_specs.json").read_text(
             encoding="utf-8"

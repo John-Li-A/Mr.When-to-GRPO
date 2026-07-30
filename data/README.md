@@ -17,6 +17,6 @@ parquet schema. `prepare_protocol.py` checks exact prompt overlap between train
 and evaluation data and stops on leakage.
 
 Users are responsible for obtaining each dataset from its original source and
-following its license. The JSONL file in `examples/` is synthetic and exists
-only to document the rollout-audit schema.
-
+following its license. Everything in `examples/` is synthetic. The JSONL file
+documents the rollout-audit schema; the plan, signals, and endpoint summaries
+exercise `when2grpo-surface` without a GPU.

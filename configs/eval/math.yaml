@@ -22,4 +22,13 @@ evaluation:
   primary_panel: MATH-500
   primary_metric: avg_at_4
   external_panels: [MATH-500, AMC23, AIME24, AIME25]
+  required_prompt_substrings: ["\\boxed{}"]
 
+verifier:
+  label: locked-ttrl-math-rule-verifier
+  train_relative_path: verl/utils/reward_score/ttrl_math/__init__.py
+  train_function: reward_func
+  eval_module: verl.utils.reward_score.ttrl_math
+  eval_function: compute_score
+  score_field: score
+  format_field: format_score

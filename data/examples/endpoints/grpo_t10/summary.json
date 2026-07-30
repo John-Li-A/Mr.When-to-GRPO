@@ -1,0 +1,17 @@
+{
+  "panel": "DEMO",
+  "dataset_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "rows": 100,
+  "n": 4,
+  "max_tokens": 512,
+  "seed": 7,
+  "avg_at_n": 0.38,
+  "pass_at_n": 0.62,
+  "all_fail_rate": 0.38,
+  "all_correct_rate": 0.08,
+  "nondegenerate_group_rate": 0.54,
+  "format_rate": 0.91,
+  "mean_tokens": 238.0,
+  "cap_hit_rate": 0.03,
+  "generation_seconds": 9.0
+}

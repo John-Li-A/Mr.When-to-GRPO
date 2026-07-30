@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "when-to-grpo"
-version = "0.1.0"
-description = "A paired recipe and launcher for testing when on-policy distillation should hand off to GRPO"
+version = "0.2.0"
+description = "A paired-intervention toolkit for OPD-to-GRPO switch-point discovery"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -21,8 +21,10 @@ test = ["pytest>=8"]
 
 [project.scripts]
 when2grpo-audit = "when_to_grpo.rollout_audit:main"
+when2grpo-doctor = "when_to_grpo.doctor:main"
 when2grpo-plan = "when_to_grpo.protocol:main"
 when2grpo-launch = "when_to_grpo.verl:main"
+when2grpo-surface = "when_to_grpo.surface:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

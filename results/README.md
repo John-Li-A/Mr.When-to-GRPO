@@ -1,11 +1,15 @@
 # Results
 
-This directory contains compact, checked observations rather than raw training
-artifacts. Checkpoints, complete trajectories, machine logs, and generated
-parquets are excluded.
+This directory contains compact reference observations and the output schema
+for handoff surfaces. Checkpoints, full trajectories, machine logs, and
+generated datasets are intentionally excluded.
 
-`tables/validated_checks.csv` lists the empirical gates used to decide whether
-the experiment could proceed. `summaries/current_status.md` states exactly what
-was and was not completed. Figures are withheld until a paired endpoint exists;
-a plot of unrelated training-batch accuracies would be misleading.
+- `tables/validated_checks.csv` records the empirical gates exercised by the
+  Qwen3 Math reference recipe.
+- `summaries/reference_recipe.md` explains what those gates do and do not
+  validate.
+- `figures/README.md` defines which comparisons are suitable for plotting.
 
+Users should write each sweep to a separate output directory with
+`when2grpo-surface`; generated experiment results are not bundled as a claimed
+universal boundary.

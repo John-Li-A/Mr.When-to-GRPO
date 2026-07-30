@@ -27,6 +27,5 @@ The project therefore separates three things that are often conflated:
 3. **a deployable controller** — can a rule learned on discovery branches choose
    the objective out of sample?
 
-Only the first two are in the current completed scope. A controller is not
-claimed before enough paired branch labels exist.
-
+The toolkit operationalizes the first two. A deployable controller is a
+downstream use of sufficiently many paired branch labels, not a built-in claim.
