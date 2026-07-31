@@ -12,19 +12,20 @@ Mr. When-to-GRPO turns the question into a matched experiment. At each candidate
 checkpoint, it forks the same student state into two futures:
 
 ```mermaid
-flowchart LR
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 45}}}%%
+flowchart TB
     CHECK["<b>checkpoint t</b><br/>same training state<br/>model · optimizer · RNG<br/>prompt batch · seed · dose"]
     OPD["<b>continue OPD</b><br/>H sampled-token updates"]
+    SIGNAL["<b>signals x(t)</b><br/>verifier contrast<br/>teacher gap · OPD score<br/>length · truncation"]
     GRPO["<b>switch to Dr.GRPO</b><br/>H matched updates"]
     EOPD["same held-out eval<br/><b>E_OPD(t)</b>"]
     EGRPO["same held-out eval<br/><b>E_GRPO(t)</b>"]
-    DELTA["<b>Δ(t)&nbsp;=&nbsp;E_GRPO(t)&nbsp;−&nbsp;E_OPD(t)</b><br/>calibrate&nbsp;x(t)&nbsp;→&nbsp;when&nbsp;to&nbsp;switch"]
-    SIGNAL["measure at t<br/><b>signals x(t)</b><br/>group&nbsp;contrast&nbsp;·&nbsp;teacher&nbsp;gap<br/>OPD score · truncation"]
+    DELTA["<b>Δ(t) = E_GRPO − E_OPD</b><br/>x(t) → switch gain"]
 
     CHECK --> OPD --> EOPD --> DELTA
-    CHECK --> GRPO --> EGRPO --> DELTA
     CHECK -.-> SIGNAL
     SIGNAL -.-> DELTA
+    CHECK --> GRPO --> EGRPO --> DELTA
 ```
 
 It does not claim a universal handoff rule. It provides the launcher, identity
