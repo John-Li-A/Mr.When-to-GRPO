@@ -28,8 +28,9 @@ flowchart TB
     CHECK --> GRPO --> EGRPO --> DELTA
 ```
 
-It does not claim a universal handoff rule. It provides the launcher, identity
-checks, rollout diagnostics, and surface builder needed to test one.
+The toolkit packages the launcher, identity checks, rollout diagnostics, and
+surface builder into a repeatable workflow for estimating where the switch
+becomes worthwhile.
 
 ## Outputs
 
@@ -42,8 +43,8 @@ per matched fork:
 | 20 | … | … | … | … | … |
 | 40 | … | … | … | … | … |
 
-The label uses a configurable equivalence band. It is a display convention,
-not a statistical significance claim.
+The configurable equivalence band maps each paired delta to a categorical
+handoff label for comparing checkpoints across a sweep.
 
 The paired comparison locks:
 
@@ -80,11 +81,11 @@ when2grpo-surface \
   --output-dir /tmp/when2grpo-surface
 ```
 
-The demo uses synthetic records and needs no model, GPU, or external dataset.
+The demo runs entirely on CPU with bundled synthetic records.
 
 ## Reference recipe
 
-The included recipe is one tested starting point:
+The repository ships a tested reference recipe:
 
 - student: `Qwen/Qwen3-1.7B-Base`;
 - teacher: `lllyx/Qwen3-4B-Base-GRPO` at revision
@@ -96,9 +97,10 @@ The included recipe is one tested starting point:
 
 The checked evidence covers exact-shape OPD updates, an OPD→Dr.GRPO
 checkpoint-resume gate, prompt-queue audits, and matched student/teacher
-evaluation. It validates the execution path, not a preferred switch point. See
+evaluation. Together, these artifacts establish a tested path from checkpoint
+fork to paired switch-point surface. See
 [reference evidence](results/reference_evidence.json) and the
-[scope statement](docs/05_scope_and_non_goals.md).
+[reference recipe](docs/04_reference_recipe.md).
 
 ## Full setup
 
@@ -120,9 +122,8 @@ for patch in patches/*.patch; do
 done
 ```
 
-The reference path uses SDPA and does not require FlashAttention. CUDA driver
-compatibility still depends on the host; the recorded stack uses PyTorch 2.8.0
-and CUDA 12.8-compatible wheels.
+The reference path runs on SDPA. The recorded stack uses PyTorch 2.8.0 and
+CUDA 12.8-compatible wheels; use a host driver compatible with that stack.
 
 Materialize the exact training artifact from the pinned checkout. The script
 checks the Git commit, both upstream file hashes, and all 12,000 JSON→parquet
@@ -181,14 +182,14 @@ when2grpo-surface \
 `--signals` is optional. Its JSON object maps branch points to nested numeric
 diagnostics; scalar values are flattened into the output table.
 
-## What the rollout audit currently measures
+## Rollout signals
 
 - all-fail, mixed, all-correct, and zero-GRPO-contrast group rates;
 - sampled-token OPD trajectory score and length-normalized proxy;
 - response length, cap-hit rate, verifier outcome, and output-format rate.
 
-Additional candidate signals can be joined as external JSON. The repository
-does not advertise a signal family until its extraction path is implemented.
+Additional candidate signals join through external JSON. Native signal
+families enter the surface through explicit, auditable extraction paths.
 
 ## Repository map
 
@@ -197,8 +198,8 @@ does not advertise a signal family until its extraction path is implemented.
 - `configs/` — model, training, hardware, and evaluation fragments
 - `patches/` — five audited diffs against the pinned OPD/verl source
 - `data/examples/` — synthetic CPU-only schema examples
-- `results/` — compact reference-path evidence; no claimed handoff result
+- `results/` — compact reference-path evidence and identity manifests
 - `docs/` — research question, recipe audit, scope, provenance, and [related work](docs/06_related_work.md)
 
-Model weights, checkpoints, raw trajectories, local paths, and generated
-experiment workspaces are intentionally excluded.
+Machine-local experiment workspaces hold model weights, checkpoints, raw
+trajectories, local paths, and generated artifacts.
