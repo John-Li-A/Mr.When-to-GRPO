@@ -11,12 +11,20 @@ changes.
 Mr. When-to-GRPO turns the question into a matched experiment. At each candidate
 checkpoint, it forks the same student state into two futures:
 
-```text
-checkpoint S_t
-    ├── continue sampled-token OPD for H updates ── evaluate E_OPD
-    └── switch to Dr.GRPO for H updates ─────────── evaluate E_GRPO
+```mermaid
+flowchart LR
+    CHECK["<b>checkpoint t</b><br/>same training state<br/>model · optimizer · RNG<br/>prompt batch · seed · dose"]
+    OPD["<b>continue OPD</b><br/>H sampled-token updates"]
+    GRPO["<b>switch to Dr.GRPO</b><br/>H matched updates"]
+    EOPD["same held-out eval<br/><b>E_OPD(t)</b>"]
+    EGRPO["same held-out eval<br/><b>E_GRPO(t)</b>"]
+    DELTA["<b>Δ(t)&nbsp;=&nbsp;E_GRPO(t)&nbsp;−&nbsp;E_OPD(t)</b><br/>calibrate&nbsp;x(t)&nbsp;→&nbsp;when&nbsp;to&nbsp;switch"]
+    SIGNAL["measure at t<br/><b>signals x(t)</b><br/>group&nbsp;contrast&nbsp;·&nbsp;teacher&nbsp;gap<br/>OPD score · truncation"]
 
-paired outcome: Δ(t) = E_GRPO - E_OPD
+    CHECK --> OPD --> EOPD --> DELTA
+    CHECK --> GRPO --> EGRPO --> DELTA
+    CHECK -.-> SIGNAL
+    SIGNAL -.-> DELTA
 ```
 
 It does not claim a universal handoff rule. It provides the launcher, identity
